@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Weather App</title>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="weather_style.css">
 </head>
 <body>
@@ -14,8 +15,10 @@
   <div class="cities-header">
     <h1>Weather</h1>
     <div class="header-actions">
-      <button class="btn-menu" id="menuBtn">&#9776; Menu</button>
-      <div class="dropdown-menu" id="dropdownMenu">
+      <button class="btn-map" id="mapBtn">🗺 Map</button>
+      <div class="header-menu-wrap">
+        <button class="btn-menu" id="menuBtn">&#9776; Menu</button>
+        <div class="dropdown-menu" id="dropdownMenu">
         <div class="dropdown-item" id="menuRefresh">Refresh</div>
         <div class="dropdown-item" id="menuEditCities">Edit Cities</div>
         <div class="dropdown-item" id="menuCurrentLocation">&#128205; Current Location</div>
@@ -24,6 +27,7 @@
         <div class="dropdown-item dropdown-check" id="menuImperial">Imperial (&deg;F)</div>
         <div class="dropdown-item dropdown-check" id="menuMetric">Metric (&deg;C)</div>
         <div class="dropdown-item dropdown-check" id="menuHybrid">Hybrid (&deg;C + mph)</div>
+      </div>
       </div>
     </div>
   </div>
@@ -57,9 +61,26 @@
       <div id="forecast-rows"></div>
     </div>
     <div class="detail-grid" id="detail-grid"></div>
+    <button class="detail-map-btn" id="detail-map-btn">🗺 View Weather Map</button>
   </div>
 </div>
 
+<!-- MAP SCREEN -->
+<div id="map-screen" class="screen">
+  <div class="map-header">
+    <button class="back-btn" id="map-back-btn">&larr; Cities</button>
+    <span class="map-title">Weather Map</span>
+  </div>
+  <div class="map-layer-bar" id="map-layer-bar">
+    <button class="map-layer-btn active" data-layer="temp">🌡 Temp</button>
+    <button class="map-layer-btn" data-layer="precip">🌧 Precip</button>
+    <button class="map-layer-btn" data-layer="aqi">💨 Air Quality</button>
+  </div>
+  <div id="map-container"></div>
+  <div id="map-legend" class="map-legend"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="weather_script.js"></script>
 
 <!-- Delete confirmation modal -->

@@ -14,11 +14,13 @@ let searchDebounce = null;
 let dragSrcCity = null;
 let editMode = false;
 
-const STORAGE_KEY = 'weather_app_cities_v2';
+const STORAGE_KEY = 'weather_app_cities_v3';
+const UNIT_KEY = 'weather_app_unit_v1';
+const CACHE_KEY = 'weather_app_cache_v1';
 const FAHRENHEIT_COUNTRIES = new Set([
   'US','BS','BZ','KY','PW','FM','MH','PR','GU','VI','AS','MP'
 ]);
-const DEFAULT_CITIES = ['New York', 'Los Angeles', 'Tokyo'];
+const DEFAULT_CITIES = ['New York', 'Los Angeles', 'Tokyo', 'Paris', 'Toronto'];
 const LOC_KEY = '__current_location__';
 
 // =========================================================
@@ -320,12 +322,21 @@ async function buildWeatherData(wx, aqi) {
 }
 async function getWeatherForCity(cityName) {
   if (globalCache[cityName]) return globalCache[cityName];
-  const results = await geocode(cityName);
-  if (!results.length) throw new Error('City not found');
+  const searchName = cityName.split(',')[0].trim();
+  const results = await geocode(searchName);
+  if (!results.length) throw new Error('City not found: ' + searchName);
   const loc = results[0];
   const [wx, aqi] = await Promise.all([fetchWeatherData(loc.latitude, loc.longitude), fetchAQI(loc.latitude, loc.longitude)]);
   const data = await buildWeatherData(wx, aqi);
+  data.lat = loc.latitude;
+  data.lon = loc.longitude;
   globalCache[cityName] = data;
+  // Persist weather cache so next open shows instantly
+  try {
+    const wc = JSON.parse(storageGet(CACHE_KEY) || '{}');
+    wc[cityName] = data;
+    storageSet(CACHE_KEY, JSON.stringify(wc));
+  } catch(e) {}
   return data;
 }
 
@@ -354,16 +365,19 @@ async function addCurrentLocation() {
         }
 
         // Remove old current location city if name changed
-        const prevCity = localStorage.getItem(LOC_KEY);
+        const prevCity = storageGet(LOC_KEY);
         if (prevCity && prevCity !== city) {
           savedCities = savedCities.filter(function(c) { return c !== prevCity; });
           delete globalCache[prevCity];
         }
-        localStorage.setItem(LOC_KEY, city);
+        storageSet(LOC_KEY, city);
 
         // Fetch weather directly from coords
         const [wx, aqi] = await Promise.all([fetchWeatherData(lat, lon), fetchAQI(lat, lon)]);
-        globalCache[city] = await buildWeatherData(wx, aqi);
+        const locData = await buildWeatherData(wx, aqi);
+        locData.lat = lat;
+        locData.lon = lon;
+        globalCache[city] = locData;
 
         // Insert at top if not already present
         if (!savedCities.includes(city)) {
@@ -384,9 +398,21 @@ async function addCurrentLocation() {
 // =========================================================
 // STORAGE
 // =========================================================
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch(e) { return null; }
+}
+function storageSet(key, val) {
+  try { localStorage.setItem(key, val); } catch(e) {}
+}
+
 function loadCities() {
-  // Auto-detect unit from system timezone on first load
-  if (unitMode === 'default') {
+  // Load saved unit preference, or auto-detect from timezone
+  const savedUnit = storageGet(UNIT_KEY);
+  if (savedUnit && ['imperial','metric','hybrid'].includes(savedUnit)) {
+    unitMode = savedUnit;
+    isHybrid = (savedUnit === 'hybrid');
+    isFahrenheit = (savedUnit !== 'metric');
+  } else if (unitMode === 'default') {
     const IMPERIAL_COUNTRIES = new Set(['US','BS','BZ','KY','FM','MH','PR','GU','VI','AS','MP','LR']);
     const HYBRID_COUNTRIES = new Set(['GB']);
     const tzCountryMap = {
@@ -460,23 +486,27 @@ function loadCities() {
     }
   }
   try {
-    const s = localStorage.getItem(STORAGE_KEY);
+    const s = storageGet(STORAGE_KEY);
     if (s) {
       const parsed = JSON.parse(s);
-      if (parsed && parsed.length) { savedCities = parsed; return; }
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        savedCities = parsed;
+        return;
+      }
     }
   } catch (e) {}
+  // No valid saved cities — load defaults and persist them
   savedCities = DEFAULT_CITIES.slice();
-  saveCities();
+  storageSet(STORAGE_KEY, JSON.stringify(savedCities));
 }
 function saveCities() {
   // Always keep current location pinned at index 0
-  const locCity = localStorage.getItem(LOC_KEY);
+  const locCity = storageGet(LOC_KEY);
   if (locCity && savedCities.includes(locCity) && savedCities[0] !== locCity) {
     savedCities = savedCities.filter(function(c) { return c !== locCity; });
     savedCities.unshift(locCity);
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(savedCities));
+  storageSet(STORAGE_KEY, JSON.stringify(savedCities));
 }
 function addCity(name) {
   if (!savedCities.includes(name)) { savedCities.push(name); saveCities(); }
@@ -534,19 +564,21 @@ function startLiveClock() {
 // =========================================================
 // AUTO-REFRESH every 5 minutes
 // =========================================================
-function startAutoRefresh() {
-  setInterval(function() {
-    globalCache = {};
-    renderCitiesScreen();
-  }, 5 * 60 * 1000);
+// =========================================================
+// SCREEN MANAGER
+// =========================================================
+function showScreen(id) {
+  ['cities-screen', 'detail-screen', 'map-screen'].forEach(function(s) {
+    document.getElementById(s).classList.remove('active');
+  });
+  document.getElementById(id).classList.add('active');
 }
 
 // =========================================================
 // CITIES SCREEN
 // =========================================================
 async function renderCitiesScreen() {
-  document.getElementById('cities-screen').classList.add('active');
-  document.getElementById('detail-screen').classList.remove('active');
+  showScreen('cities-screen');
   // Sync menu button label with edit mode state
   syncEditModeUI();
 
@@ -554,22 +586,20 @@ async function renderCitiesScreen() {
   list.innerHTML = '';
 
   if (savedCities.length === 0) {
-    list.innerHTML = '<div class="empty-state">No cities added yet.<br>Use the search bar or tap Menu to add one.</div>';
-    return;
+    savedCities = DEFAULT_CITIES.slice();
+    storageSet(STORAGE_KEY, JSON.stringify(savedCities));
   }
 
   for (let ci = 0; ci < savedCities.length; ci++) {
     (function(city) {
       const card = document.createElement('div');
       card.className = 'city-card';
+      card.style.background = 'rgba(255,255,255,0.08)';
       card.dataset.city = city;
-      card.draggable = true;
       card.innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
       list.appendChild(card);
 
-      // Drag events — current location is pinned at top, cannot be moved
-      const isLocCityDrag = city === localStorage.getItem(LOC_KEY);
-      // Only non-location cards are draggable, and only in edit mode
+      const isLocCityDrag = city === storageGet(LOC_KEY);
       card.draggable = !isLocCityDrag;
       card.addEventListener('dragstart', function(e) {
         if (!editMode || isLocCityDrag) { e.preventDefault(); return; }
@@ -586,13 +616,13 @@ async function renderCitiesScreen() {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         document.querySelectorAll('.city-card').forEach(function(c) { c.classList.remove('drag-over'); });
-        const locCity = localStorage.getItem(LOC_KEY);
+        const locCity = storageGet(LOC_KEY);
         if (city !== dragSrcCity && city !== locCity) card.classList.add('drag-over');
       });
       card.addEventListener('drop', function(e) {
         if (!editMode) return;
         e.preventDefault();
-        const locCity = localStorage.getItem(LOC_KEY);
+        const locCity = storageGet(LOC_KEY);
         if (dragSrcCity && dragSrcCity !== city && city !== locCity) {
           const srcIdx = savedCities.indexOf(dragSrcCity);
           const dstIdx = savedCities.indexOf(city);
@@ -607,18 +637,17 @@ async function renderCitiesScreen() {
         dragSrcCity = null;
       });
 
-      getWeatherForCity(city).then(function(data) {
+      function renderCard(data) {
         const cat = tempCategory(data.currentTemp);
         const hi  = toDisplay(data.forecast[0] ? data.forecast[0].max : data.currentTemp);
         const lo  = toDisplay(data.forecast[0] ? data.forecast[0].min : data.currentTemp);
         const name = city.split(',')[0].trim();
-        const isLocCity = city === localStorage.getItem(LOC_KEY);
-
+        const isLocCity = city === storageGet(LOC_KEY);
+        card.style.background = '';
         card.className = 'city-card card-' + cat + (editMode ? ' show-delete' : '');
         card.dataset.city = city;
         card.draggable = true;
         card.innerHTML =
-          // no drag handle — cards are draggable invisibly in edit mode
           '<div class="card-top">' +
             '<div>' +
               '<div class="city-name">' + (isLocCity ? '&#128205; ' : '') + name + '</div>' +
@@ -631,28 +660,26 @@ async function renderCitiesScreen() {
             '</div>' +
           '</div>' +
           (isLocCity ? '' : '<button class="delete-btn">&times;</button>');
-
-        // Delete button — only on non-location cities
         const delBtn = card.querySelector('.delete-btn');
-        if (delBtn) {
-          delBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            showDeleteConfirm(city, card);
-          });
-        }
+        if (delBtn) delBtn.addEventListener('click', function(e) { e.stopPropagation(); showDeleteConfirm(city, card); });
+        card.addEventListener('click', function(e) { if (!e.target.classList.contains('delete-btn')) showDetail(city); });
+      }
 
-        // Card click
-        card.addEventListener('click', function(e) {
-          if (e.target.classList.contains('delete-btn')) return;
-          showDetail(city);
+      // If already cached — render instantly, then fetch fresh in background
+      if (globalCache[city]) {
+        renderCard(globalCache[city]);
+        getWeatherForCity(city).then(function(data) { renderCard(data); }).catch(function() {});
+      } else {
+        // Not cached — fetch and render when done
+        getWeatherForCity(city).then(function(data) {
+          renderCard(data);
+        }).catch(function() {
+          card.className = 'city-card card-cold';
+          card.dataset.city = city;
+          card.innerHTML = '<div class="card-top"><div><div class="city-name">' + city.split(',')[0] + '</div><div class="city-condition" style="opacity:0.6">Unavailable</div></div></div>';
+          card.addEventListener('click', function() { showDetail(city); });
         });
-
-      }).catch(function() {
-        card.className = 'city-card card-cold';
-        card.dataset.city = city;
-        card.innerHTML = '<div class="card-top"><div><div class="city-name">' + city.split(',')[0] + '</div><div class="city-condition" style="opacity:0.6">Unavailable</div></div></div>';
-        card.addEventListener('click', function() { showDetail(city); });
-      });
+      }
 
     })(savedCities[ci]);
   }
@@ -673,7 +700,8 @@ document.getElementById('city-search').addEventListener('input', function() {
     } else {
       el.innerHTML = results.slice(0,5).map(function(r) {
         const sub = [r.admin1, r.country].filter(Boolean).join(', ');
-        return '<div class="search-result-item" data-name="' + r.name + '"><div>' + r.name + '</div><div class="sub">' + sub + '</div></div>';
+        const fullName = r.name + (sub ? ', ' + sub : '');
+        return '<div class="search-result-item" data-name="' + fullName + '"><div>' + r.name + '</div><div class="sub">' + sub + '</div></div>';
       }).join('');
       el.querySelectorAll('.search-result-item').forEach(function(item) {
         item.addEventListener('click', function() {
@@ -709,8 +737,7 @@ async function showDetail(city) {
   citiesScrollY = document.getElementById('cities-screen').scrollTop;
   var ds = document.getElementById('detail-screen');
   ds.scrollTop = 0;
-  document.getElementById('detail-screen').classList.add('active');
-  document.getElementById('cities-screen').classList.remove('active');
+  showScreen('detail-screen');
   ds.scrollTop = 0;
   currentCity = city;
   document.getElementById('detail-city').textContent = city.split(',')[0].trim();
@@ -939,16 +966,16 @@ function renderDetailGrid(data) {
   const grid = document.getElementById('detail-grid');
   grid.innerHTML = '';
   const aqi = aqiStatus(data.airQuality), uv = uvStatus(data.uvIndex);
+  const precip = (!isHybrid && !isFahrenheit) ? (data.precipitation*2.54).toFixed(2) + ' cm' : data.precipitation.toFixed(2) + ' in';
+  const vis    = (!isHybrid && !isFahrenheit) ? (data.visibility/1000).toFixed(1) + ' km' : (data.visibility/1609.34).toFixed(1) + ' mi';
   grid.appendChild(makeCircleCard('AIR QUALITY', data.airQuality, aqi.label, aqi.color, aqi.text));
   grid.appendChild(makeCircleCard('UV INDEX',    data.uvIndex,    uv.label,  uv.color,  uv.text));
+  grid.appendChild(makeTextCard('PRECIPITATION', precip + '\n(24h)'));
+  grid.appendChild(makeTextCard('VISIBILITY', vis));
   grid.appendChild(makeFeelsLikeCard(data.feelsLike, data.currentTemp, data.windSpeed, data.humidity));
   grid.appendChild(makeTextCard('HUMIDITY', data.humidity + '%'));
   grid.appendChild(makeTextCard('WIND', data.windDir + ' ' + ((!isHybrid && !isFahrenheit) ? Math.round(data.windSpeed*1.609) + ' km/h' : data.windSpeed + ' mph')));
   grid.appendChild(makeTempCircleCard('DEW POINT', data.dewPoint));
-  const precip = (!isHybrid && !isFahrenheit) ? (data.precipitation*2.54).toFixed(2) + ' cm' : data.precipitation.toFixed(2) + ' in';
-  const vis    = (!isHybrid && !isFahrenheit) ? (data.visibility/1000).toFixed(1) + ' km' : (data.visibility/1609.34).toFixed(1) + ' mi';
-  grid.appendChild(makeTextCard('PRECIPITATION', precip + '\n(24h)'));
-  grid.appendChild(makeTextCard('VISIBILITY', vis));
 }
 function makeCircleCard(title, value, label, circleColor, circleText) {
   const card = document.createElement('div');
@@ -1504,6 +1531,7 @@ function applyUnit(mode) {
   unitMode = mode;
   isHybrid = (mode === 'hybrid');
   isFahrenheit = (mode !== 'metric');
+  storageSet(UNIT_KEY, mode);
   updateChecks();
   globalCache = {};
   renderCitiesScreen();
@@ -1523,8 +1551,7 @@ document.getElementById('back-btn').addEventListener('click', function() {
   detailScrollY = 0;
   stopLiveAnim();
   currentCity = null;
-  document.getElementById('cities-screen').classList.add('active');
-  document.getElementById('detail-screen').classList.remove('active');
+  showScreen('cities-screen');
   renderCitiesScreen();
   // Poll until the cities screen has content, then restore scroll
   var attempts = 0;
@@ -1541,10 +1568,209 @@ document.getElementById('back-btn').addEventListener('click', function() {
 });
 
 // =========================================================
+// MAP SCREEN
+// =========================================================
+let mapInstance = null;
+let mapCurrentLayer = 'temp';
+let mapOverlayLayer = null;
+let mapCityMarkers = [];
+let mapInitialized = false;
+let mapPrevScreen = 'cities-screen';
+
+function aqiColor(aqi) {
+  if (aqi <= 50)  return '#00e400';
+  if (aqi <= 100) return '#ffff00';
+  if (aqi <= 150) return '#ff7e00';
+  if (aqi <= 200) return '#ff0000';
+  if (aqi <= 300) return '#8f3f97';
+  return '#7e0023';
+}
+function aqiLabel(aqi) {
+  if (aqi <= 50)  return 'Good';
+  if (aqi <= 100) return 'Moderate';
+  if (aqi <= 150) return 'Unhealthy for Sensitive';
+  if (aqi <= 200) return 'Unhealthy';
+  if (aqi <= 300) return 'Very Unhealthy';
+  return 'Hazardous';
+}
+
+function buildTempLegend() {
+  var unit = (isFahrenheit && !isHybrid) ? '°F' : '°C';
+  var lo = (isFahrenheit && !isHybrid) ? '-40°' : '-40°';
+  var mid = (isFahrenheit && !isHybrid) ? '41°' : '5°';
+  var hi = (isFahrenheit && !isHybrid) ? '122°' : '50°';
+  return '<div class="map-legend-title">Temperature (' + unit + ')</div>' +
+    '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:linear-gradient(to right,#32174d,#8601af,#0000ff,#00ff00,#ffff00,#ffa500,#ff0000,#800000)"></div></div>' +
+    '<div class="map-legend-labels"><span class="map-legend-label">' + lo + '</span><span class="map-legend-label">' + mid + '</span><span class="map-legend-label">' + hi + '</span></div>';
+}
+function buildPrecipLegend() {
+  return '<div class="map-legend-title">Precipitation (radar)</div>' +
+    '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:linear-gradient(to right,rgba(0,100,255,0.2),#0080ff,#00ffff,#00ff00,#ffff00,#ff8000,#ff0000)"></div></div>' +
+    '<div class="map-legend-labels"><span class="map-legend-label">None</span><span class="map-legend-label">Moderate</span><span class="map-legend-label">Heavy</span></div>';
+}
+function buildAqiLegend() {
+  return '<div class="map-legend-title">Air Quality Index</div><div class="map-legend-swatches">' +
+    '<div class="map-legend-swatch"><div class="map-legend-dot" style="background:#00e400"></div><span>Good</span></div>' +
+    '<div class="map-legend-swatch"><div class="map-legend-dot" style="background:#ffff00"></div><span>Moderate</span></div>' +
+    '<div class="map-legend-swatch"><div class="map-legend-dot" style="background:#ff7e00"></div><span>Sensitive</span></div>' +
+    '<div class="map-legend-swatch"><div class="map-legend-dot" style="background:#ff0000"></div><span>Unhealthy</span></div>' +
+    '<div class="map-legend-swatch"><div class="map-legend-dot" style="background:#8f3f97"></div><span>Very Unhealthy</span></div>' +
+    '<div class="map-legend-swatch"><div class="map-legend-dot" style="background:#7e0023"></div><span>Hazardous</span></div></div>';
+}
+
+function clearMapOverlays() {
+  if (mapOverlayLayer) { mapInstance.removeLayer(mapOverlayLayer); mapOverlayLayer = null; }
+  mapCityMarkers.forEach(function(m) { mapInstance.removeLayer(m); });
+  mapCityMarkers = [];
+}
+
+function addCityMarker(city, html, lat, lon) {
+  var icon = L.divIcon({ className: '', html: html, iconAnchor: [0, 10] });
+  var marker = L.marker([lat, lon], { icon: icon }).addTo(mapInstance);
+  marker.on('click', function() {
+    mapPrevScreen = 'detail-screen';
+    showScreen('detail-screen');
+    showDetail(city);
+  });
+  mapCityMarkers.push(marker);
+}
+
+function placeTempMarkers() {
+  savedCities.forEach(function(city) {
+    var c = globalCache[city];
+    if (!c || c.lat == null) return;
+    var color = tempColor(c.currentTemp);
+    var txt = toDisplayStr(c.currentTemp);
+    var label = city.split(',')[0];
+    addCityMarker(city,
+      '<div class="map-city-marker" style="border-color:' + color + '">' + label + ' ' + txt + '</div>',
+      c.lat, c.lon);
+  });
+}
+
+function placeAqiMarkers() {
+  savedCities.forEach(function(city) {
+    var c = globalCache[city];
+    if (!c || c.lat == null) return;
+    var lat = c.lat, lon = c.lon;
+    var label = city.split(',')[0];
+    fetch('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat + '&longitude=' + lon + '&current=us_aqi&timezone=auto')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var aqi = d.current && d.current.us_aqi != null ? d.current.us_aqi : null;
+        var color = aqi != null ? aqiColor(aqi) : '#888';
+        var aqiStr = aqi != null ? (aqi + ' — ' + aqiLabel(aqi)) : 'N/A';
+        addCityMarker(city,
+          '<div class="map-city-marker" style="border-color:' + color + ';background:rgba(0,0,0,0.85)"><span style="color:' + color + '">' + label + '</span> ' + aqiStr + '</div>',
+          lat, lon);
+      }).catch(function() {});
+  });
+}
+
+function setMapLayer(layerKey) {
+  mapCurrentLayer = layerKey;
+  document.querySelectorAll('.map-layer-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.layer === layerKey);
+  });
+  clearMapOverlays();
+
+  if (layerKey === 'temp') {
+    // No tile overlay — use city markers with temp colors
+    placeTempMarkers();
+    document.getElementById('map-legend').innerHTML = buildTempLegend();
+
+  } else if (layerKey === 'precip') {
+    // RainViewer animated radar — free, no API key
+    fetch('https://api.rainviewer.com/public/weather-maps.json')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var frames = d.radar && d.radar.past;
+        if (frames && frames.length) {
+          var latest = frames[frames.length - 1];
+          mapOverlayLayer = L.tileLayer(
+            d.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png',
+            { opacity: 0.6, maxZoom: 19 }
+          );
+          mapOverlayLayer.addTo(mapInstance);
+        }
+        placeTempMarkers();
+      }).catch(function() { placeTempMarkers(); });
+    document.getElementById('map-legend').innerHTML = buildPrecipLegend();
+
+  } else if (layerKey === 'aqi') {
+    placeAqiMarkers();
+    document.getElementById('map-legend').innerHTML = buildAqiLegend();
+  }
+}
+
+function initMap() {
+  if (mapInitialized) return;
+  mapInitialized = true;
+  mapInstance = L.map('map-container', {
+    center: [20, 0],
+    zoom: 2,
+    zoomControl: true,
+    attributionControl: true
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(mapInstance);
+}
+
+function openMapScreen() {
+  showScreen('map-screen');
+  setTimeout(function() {
+    if (!mapInitialized) initMap();
+    mapInstance.invalidateSize();
+    setMapLayer(mapCurrentLayer);
+    if (currentCity && globalCache[currentCity] && globalCache[currentCity].lat != null) {
+      mapInstance.setView([globalCache[currentCity].lat, globalCache[currentCity].lon], 6);
+    } else if (savedCities.length > 0 && globalCache[savedCities[0]] && globalCache[savedCities[0]].lat != null) {
+      mapInstance.setView([globalCache[savedCities[0]].lat, globalCache[savedCities[0]].lon], 4);
+    }
+  }, 80);
+}
+
+document.getElementById('mapBtn').addEventListener('click', function() {
+  mapPrevScreen = 'cities-screen';
+  openMapScreen();
+});
+document.getElementById('detail-map-btn').addEventListener('click', function() {
+  mapPrevScreen = 'detail-screen';
+  openMapScreen();
+});
+document.getElementById('map-back-btn').addEventListener('click', function() {
+  showScreen(mapPrevScreen);
+});
+document.getElementById('map-layer-bar').addEventListener('click', function(e) {
+  var btn = e.target.closest('.map-layer-btn');
+  if (btn && mapInstance) setMapLayer(btn.dataset.layer);
+});
+
+
+// =========================================================
 // INIT
 // =========================================================
 loadCities();
-renderCitiesScreen();
 updateChecks();
 startLiveClock();
-startAutoRefresh();
+
+// Restore last-known weather cache so cards show instantly on open
+try {
+  const wc = JSON.parse(storageGet(CACHE_KEY) || '{}');
+  savedCities.forEach(function(city) {
+    if (wc[city]) globalCache[city] = wc[city];
+  });
+} catch(e) {}
+
+// Render immediately — cached cities show instantly, uncached show spinners then load
+renderCitiesScreen();
+
+// Every 5 minutes do a full refresh
+setInterval(function() {
+  globalCache = {};
+  storageSet(CACHE_KEY, '{}');
+  renderCitiesScreen();
+}, 5 * 60 * 1000);
