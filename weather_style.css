@@ -785,3 +785,36 @@ body {
   transition: transform 0.15s;
 }
 .map-city-marker:hover { transform: scale(1.08); }
+
+.map-pin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.map-pin-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 0 2px rgba(255,255,255,0.25);
+  transition: transform 0.15s;
+}
+.map-pin-circle:hover { transform: scale(1.1); }
+.map-pin-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  font-family: var(--font);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  white-space: nowrap;
+  background: rgba(0,0,0,0.5);
+  padding: 1px 5px;
+  border-radius: 4px;
+}

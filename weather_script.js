@@ -32,9 +32,9 @@ function tempCategory(f) {
   if (f <= 49)  return 'cold';     // 33°F to 49°F
   if (f <= 59)  return 'chilly';   // 50°F to 59°F
   if (f <= 77)  return 'ideal';    // 60°F to 77°F
-  if (f <= 94)  return 'warm';     // 78°F to 94°F
-  if (f <= 121) return 'hot';      // 95°F to 121°F
-  return 'scorched';               // >= 122°F (50°C+)
+  if (f <= 95)  return 'warm';     // 78°F to 95°F
+  if (f <= 122) return 'hot';      // 96°F to 122°F
+  return 'scorched';               // >= 123°F
 }
 const TEMP_COLORS = {
   bitter:'#32174d',  // Dark purple  <= -58°F
@@ -58,9 +58,9 @@ const GRAD_BOUNDS = [
   { t:  33, hex: '#0000ff' },  // Cold:     33°F to 49°F
   { t:  50, hex: '#00ff00' },  // Chilly:   50°F to 59°F
   { t:  60, hex: '#ffff00' },  // Ideal:    60°F to 77°F
-  { t:  78, hex: '#ffa500' },  // Warm:     78°F to 94°F
-  { t:  95, hex: '#ff0000' },  // Hot:      95°F to 121°F
-  { t: 122, hex: '#800000' }   // Scorched: >= 122°F
+  { t:  78, hex: '#ffa500' },  // Warm:     78°F to 95°F
+  { t:  96, hex: '#ff0000' },  // Hot:      96°F to 122°F
+  { t: 123, hex: '#800000' }   // Scorched: >= 123°F
 ];
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
@@ -1573,9 +1573,13 @@ document.getElementById('back-btn').addEventListener('click', function() {
 let mapInstance = null;
 let mapCurrentLayer = 'temp';
 let mapOverlayLayer = null;
+let mapCanvasLayer = null;
 let mapCityMarkers = [];
 let mapInitialized = false;
 let mapPrevScreen = 'cities-screen';
+
+// OpenWeatherMap free API key — sign up at openweathermap.org for your own
+const OWM_KEY = '4b9e4b4e81cc1f2a8d5d3f7b2e9c1a0d';
 
 function aqiColor(aqi) {
   if (aqi <= 50)  return '#00e400';
@@ -1596,16 +1600,17 @@ function aqiLabel(aqi) {
 
 function buildTempLegend() {
   var unit = (isFahrenheit && !isHybrid) ? '°F' : '°C';
-  var lo = (isFahrenheit && !isHybrid) ? '-40°' : '-40°';
-  var mid = (isFahrenheit && !isHybrid) ? '41°' : '5°';
-  var hi = (isFahrenheit && !isHybrid) ? '122°' : '50°';
+  var lo  = (isFahrenheit && !isHybrid) ? '-58°' : '-50°';
+  var mid = (isFahrenheit && !isHybrid) ? '32°'  : '0°';
+  var hi  = (isFahrenheit && !isHybrid) ? '123°' : '51°';
+  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 0.5%,#0000ff 50%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.7%,#ff0000 85.1%,#800000 100%)';
   return '<div class="map-legend-title">Temperature (' + unit + ')</div>' +
-    '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:linear-gradient(to right,#32174d,#8601af,#0000ff,#00ff00,#ffff00,#ffa500,#ff0000,#800000)"></div></div>' +
+    '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:' + grad + '"></div></div>' +
     '<div class="map-legend-labels"><span class="map-legend-label">' + lo + '</span><span class="map-legend-label">' + mid + '</span><span class="map-legend-label">' + hi + '</span></div>';
 }
 function buildPrecipLegend() {
   return '<div class="map-legend-title">Precipitation (radar)</div>' +
-    '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:linear-gradient(to right,rgba(0,100,255,0.2),#0080ff,#00ffff,#00ff00,#ffff00,#ff8000,#ff0000)"></div></div>' +
+    '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:linear-gradient(to right,rgba(0,100,255,0.1),#0080ff,#00ffff,#00ff00,#ffff00,#ff8000,#ff0000)"></div></div>' +
     '<div class="map-legend-labels"><span class="map-legend-label">None</span><span class="map-legend-label">Moderate</span><span class="map-legend-label">Heavy</span></div>';
 }
 function buildAqiLegend() {
@@ -1624,47 +1629,103 @@ function clearMapOverlays() {
   mapCityMarkers = [];
 }
 
-function addCityMarker(city, html, lat, lon) {
-  var icon = L.divIcon({ className: '', html: html, iconAnchor: [0, 10] });
-  var marker = L.marker([lat, lon], { icon: icon }).addTo(mapInstance);
-  marker.on('click', function() {
+function addCityPin(city, color, textColor, label, value, lat, lon) {
+  var icon = L.divIcon({
+    className: '',
+    html: '<div class="map-pin-wrap">' +
+            '<div class="map-pin-circle" style="background:' + color + ';color:' + textColor + '">' + value + '</div>' +
+            '<div class="map-pin-label">' + label + '</div>' +
+          '</div>',
+    iconAnchor: [22, 22]
+  });
+  var m = L.marker([lat, lon], { icon: icon }).addTo(mapInstance);
+  m.on('click', function() {
     mapPrevScreen = 'detail-screen';
     showScreen('detail-screen');
     showDetail(city);
   });
-  mapCityMarkers.push(marker);
+  mapCityMarkers.push(m);
 }
 
-function placeTempMarkers() {
+function placeTempPins() {
   savedCities.forEach(function(city) {
     var c = globalCache[city];
     if (!c || c.lat == null) return;
-    var color = tempColor(c.currentTemp);
-    var txt = toDisplayStr(c.currentTemp);
-    var label = city.split(',')[0];
-    addCityMarker(city,
-      '<div class="map-city-marker" style="border-color:' + color + '">' + label + ' ' + txt + '</div>',
-      c.lat, c.lon);
+    addCityPin(city, tempColor(c.currentTemp), tempTextColor(c.currentTemp), city.split(',')[0], toDisplayStr(c.currentTemp), c.lat, c.lon);
   });
 }
 
-function placeAqiMarkers() {
+function placeAqiPins() {
   savedCities.forEach(function(city) {
     var c = globalCache[city];
     if (!c || c.lat == null) return;
     var lat = c.lat, lon = c.lon;
-    var label = city.split(',')[0];
     fetch('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat + '&longitude=' + lon + '&current=us_aqi&timezone=auto')
       .then(function(r) { return r.json(); })
       .then(function(d) {
         var aqi = d.current && d.current.us_aqi != null ? d.current.us_aqi : null;
-        var color = aqi != null ? aqiColor(aqi) : '#888';
-        var aqiStr = aqi != null ? (aqi + ' — ' + aqiLabel(aqi)) : 'N/A';
-        addCityMarker(city,
-          '<div class="map-city-marker" style="border-color:' + color + ';background:rgba(0,0,0,0.85)"><span style="color:' + color + '">' + label + '</span> ' + aqiStr + '</div>',
-          lat, lon);
+        if (aqi == null) return;
+        var color = aqiColor(aqi);
+        var textColor = (aqi <= 100) ? '#000' : '#fff';
+        addCityPin(city, color, textColor, city.split(',')[0], aqi + '', lat, lon);
       }).catch(function() {});
   });
+}
+
+function drawTempCanvas() {
+  var points = [];
+  savedCities.forEach(function(city) {
+    var c = globalCache[city];
+    if (!c || c.lat == null) return;
+    var px = mapInstance.latLngToContainerPoint(L.latLng(c.lat, c.lon));
+    points.push({ x: px.x, y: px.y, temp: c.currentTemp });
+  });
+  if (!points.length) return;
+
+  var container = mapInstance.getContainer();
+  var existing = container.querySelector('#map-temp-canvas');
+  if (existing) existing.remove();
+  var cv = document.createElement('canvas');
+  cv.id = 'map-temp-canvas';
+  cv.width = container.offsetWidth;
+  cv.height = container.offsetHeight;
+  cv.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:300;opacity:0.6;';
+  container.appendChild(cv);
+
+  var ctx2 = cv.getContext('2d');
+  var imgData = ctx2.createImageData(cv.width, cv.height);
+  var d = imgData.data;
+  var W = cv.width, H = cv.height;
+
+  for (var py = 0; py < H; py += 3) {
+    for (var px2 = 0; px2 < W; px2 += 3) {
+      var wSum = 0, tSum = 0;
+      for (var i = 0; i < points.length; i++) {
+        var dx = px2 - points[i].x, dy = py - points[i].y;
+        var dist = Math.sqrt(dx*dx + dy*dy) + 1;
+        var w = 1 / (dist * dist);
+        wSum += w; tSum += w * points[i].temp;
+      }
+      var temp = tSum / wSum;
+      var col = hexToRgbMap(tempColor(temp));
+      for (var by = 0; by < 3 && py+by < H; by++) {
+        for (var bx = 0; bx < 3 && px2+bx < W; bx++) {
+          var idx = ((py+by) * W + (px2+bx)) * 4;
+          d[idx]=col[0]; d[idx+1]=col[1]; d[idx+2]=col[2]; d[idx+3]=160;
+        }
+      }
+    }
+  }
+  ctx2.putImageData(imgData, 0, 0);
+
+  // Smooth the result
+  var tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  var tctx = tmp.getContext('2d');
+  tctx.filter = 'blur(30px)';
+  tctx.drawImage(cv, 0, 0);
+  ctx2.clearRect(0, 0, W, H);
+  ctx2.drawImage(tmp, 0, 0);
 }
 
 function setMapLayer(layerKey) {
@@ -1673,14 +1734,17 @@ function setMapLayer(layerKey) {
     b.classList.toggle('active', b.dataset.layer === layerKey);
   });
   clearMapOverlays();
+  var existing = mapInstance.getContainer().querySelector('#map-temp-canvas');
+  if (existing) existing.remove();
+  mapInstance.off('moveend', drawTempCanvas);
 
   if (layerKey === 'temp') {
-    // No tile overlay — use city markers with temp colors
-    placeTempMarkers();
+    placeTempPins();
+    setTimeout(drawTempCanvas, 150);
+    mapInstance.on('moveend', drawTempCanvas);
     document.getElementById('map-legend').innerHTML = buildTempLegend();
 
   } else if (layerKey === 'precip') {
-    // RainViewer animated radar — free, no API key
     fetch('https://api.rainviewer.com/public/weather-maps.json')
       .then(function(r) { return r.json(); })
       .then(function(d) {
@@ -1689,16 +1753,16 @@ function setMapLayer(layerKey) {
           var latest = frames[frames.length - 1];
           mapOverlayLayer = L.tileLayer(
             d.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png',
-            { opacity: 0.6, maxZoom: 19 }
+            { opacity: 0.75, maxZoom: 19 }
           );
           mapOverlayLayer.addTo(mapInstance);
         }
-        placeTempMarkers();
-      }).catch(function() { placeTempMarkers(); });
+        placeTempPins();
+      }).catch(function() { placeTempPins(); });
     document.getElementById('map-legend').innerHTML = buildPrecipLegend();
 
   } else if (layerKey === 'aqi') {
-    placeAqiMarkers();
+    placeAqiPins();
     document.getElementById('map-legend').innerHTML = buildAqiLegend();
   }
 }
@@ -1717,6 +1781,29 @@ function initMap() {
     subdomains: 'abcd',
     maxZoom: 19
   }).addTo(mapInstance);
+}
+
+
+function aqiColor(aqi) {
+  if (aqi <= 50)  return '#00e400';
+  if (aqi <= 100) return '#ffff00';
+  if (aqi <= 150) return '#ff7e00';
+  if (aqi <= 200) return '#ff0000';
+  if (aqi <= 300) return '#8f3f97';
+  return '#7e0023';
+}
+function aqiLabel(aqi) {
+  if (aqi <= 50)  return 'Good';
+  if (aqi <= 100) return 'Moderate';
+  if (aqi <= 150) return 'Unhealthy for Sensitive';
+  if (aqi <= 200) return 'Unhealthy';
+  if (aqi <= 300) return 'Very Unhealthy';
+  return 'Hazardous';
+}
+
+function hexToRgbMap(hex) {
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return [r,g,b];
 }
 
 function openMapScreen() {
@@ -1768,9 +1855,8 @@ try {
 // Render immediately — cached cities show instantly, uncached show spinners then load
 renderCitiesScreen();
 
-// Every 5 minutes do a full refresh
+// Every 5 minutes — refresh weather data, keep city list intact
 setInterval(function() {
   globalCache = {};
-  storageSet(CACHE_KEY, '{}');
   renderCitiesScreen();
 }, 5 * 60 * 1000);
