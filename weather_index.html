@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weather App</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="weather_style.css">
+</head>
+<body>
+
+<!-- CITIES SCREEN -->
+<div id="cities-screen" class="screen active">
+  <div class="cities-header">
+    <h1>Weather</h1>
+    <div class="header-actions">
+      <button class="btn-menu" id="menuBtn">&#9776; Menu</button>
+      <div class="dropdown-menu" id="dropdownMenu">
+        <div class="dropdown-item" id="menuRefresh">Refresh</div>
+        <div class="dropdown-item" id="menuEditCities">Edit Cities</div>
+        <div class="dropdown-item" id="menuCurrentLocation">&#128205; Current Location</div>
+        <div class="dropdown-divider"></div>
+        <div class="dropdown-item dropdown-check" id="menuDefault">Default</div>
+        <div class="dropdown-item dropdown-check" id="menuImperial">Imperial (&deg;F)</div>
+        <div class="dropdown-item dropdown-check" id="menuMetric">Metric (&deg;C)</div>
+        <div class="dropdown-item dropdown-check" id="menuHybrid">Hybrid (&deg;C + mph)</div>
+      </div>
+    </div>
+  </div>
+  <div class="search-bar">
+    <span class="search-icon">&#128269;</span>
+    <input type="text" id="city-search" placeholder="Search for a city or airport" autocomplete="off" spellcheck="false">
+  </div>
+  <div id="search-results" class="search-results"></div>
+  <div class="city-cards" id="city-cards-list"></div>
+</div>
+
+<!-- DETAIL SCREEN -->
+<div id="detail-screen" class="screen">
+  <div class="detail-bg" id="detail-bg"></div>
+  <canvas id="live-canvas" width="400" height="900"></canvas>
+  <div class="detail-content">
+    <button class="back-btn" id="back-btn">&larr; Cities</button>
+    <div class="detail-city" id="detail-city">--</div>
+    <div class="detail-temp-wrap">
+      <div class="detail-temp-circle" id="detail-circle">
+        <span id="detail-temp">--</span>
+      </div>
+    </div>
+    <div class="detail-condition-icon" id="detail-icon"></div>
+    <div class="detail-condition-text" id="detail-condition"></div>
+    <div class="hourly-scroll-wrap">
+      <div class="hourly-inner" id="hourly-inner"></div>
+    </div>
+    <div class="forecast-box">
+      <div class="forecast-title">10-DAY FORECAST</div>
+      <div id="forecast-rows"></div>
+    </div>
+    <div class="detail-grid" id="detail-grid"></div>
+  </div>
+</div>
+
+<script src="weather_script.js"></script>
+
+<!-- Delete confirmation modal -->
+<div id="delete-confirm-backdrop" style="display:none"></div>
+<div id="delete-confirm-modal">
+  <div class="dcm-icon">&#9888;</div>
+  <div id="delete-confirm-msg">Remove this city?</div>
+  <div class="dcm-buttons">
+    <button id="delete-confirm-no">Cancel</button>
+    <button id="delete-confirm-yes">Remove</button>
+  </div>
+</div>
+</body>
+</html>
