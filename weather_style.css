@@ -200,10 +200,10 @@ body {
 .card-frigid   { background: #8601af; } /* Violet (RYB) */
 .card-cold     { background: #0000ff; }
 .card-chilly   { background: #00ff00; }
-.card-ideal    { background: #ffff00; }
-.card-warm     { background: #ffa500; }
-.card-hot      { background: #ff0000; }
-.card-scorched { background: #800000; }
+.card-warm     { background: #ffff00; }
+.card-hot      { background: #ffa500; }
+.card-scorched { background: #ff0000; }
+.card-scalding { background: #800000; }
 
 /* Black text on bright backgrounds */
 .card-chilly .city-name,
@@ -211,11 +211,11 @@ body {
 .card-chilly .city-time,
 .card-chilly .city-condition,
 .card-chilly .city-hilo,
-.card-ideal .city-name,
-.card-ideal .city-temp,
-.card-ideal .city-time,
-.card-ideal .city-condition,
-.card-ideal .city-hilo { color: #000000; }
+.card-warm .city-name,
+.card-warm .city-temp,
+.card-warm .city-time,
+.card-warm .city-condition,
+.card-warm .city-hilo { color: #000000; }
 
 /* ===== EMPTY STATE ===== */
 .empty-state {
