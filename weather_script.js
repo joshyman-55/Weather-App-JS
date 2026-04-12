@@ -405,85 +405,83 @@ function storageSet(key, val) {
   try { localStorage.setItem(key, val); } catch(e) {}
 }
 
+function autoDetectUnit() {
+  const IMPERIAL_COUNTRIES = new Set(['US','BS','BZ','KY','FM','MH','PR','GU','VI','AS','MP','LR']);
+  const HYBRID_COUNTRIES = new Set(['GB']);
+  const tzCountryMap = {
+    'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
+    'America/Anchorage':'US','America/Honolulu':'US','America/Phoenix':'US',
+    'America/Indiana/Indianapolis':'US','America/Indiana/Chicago':'US','America/Indiana/Knox':'US',
+    'America/Indiana/Marengo':'US','America/Indiana/Petersburg':'US','America/Indiana/Tell_City':'US',
+    'America/Indiana/Vevay':'US','America/Indiana/Vincennes':'US','America/Indiana/Winamac':'US',
+    'America/Detroit':'US','America/Kentucky/Louisville':'US','America/Kentucky/Monticello':'US',
+    'America/North_Dakota/Beulah':'US','America/North_Dakota/Center':'US','America/North_Dakota/New_Salem':'US',
+    'America/Boise':'US','America/Juneau':'US','America/Sitka':'US','America/Metlakatla':'US',
+    'America/Yakutat':'US','America/Nome':'US','America/Adak':'US',
+    'Pacific/Honolulu':'US','Pacific/Pago_Pago':'AS','Pacific/Guam':'GU',
+    'America/Puerto_Rico':'PR',
+    'America/Toronto':'CA','America/Vancouver':'CA','America/Edmonton':'CA',
+    'America/Winnipeg':'CA','America/Halifax':'CA','America/St_Johns':'CA',
+    'America/Regina':'CA','America/Whitehorse':'CA','America/Yellowknife':'CA',
+    'America/Iqaluit':'CA','America/Moncton':'CA','America/Glace_Bay':'CA',
+    'America/Goose_Bay':'CA','America/Nipigon':'CA','America/Rainy_River':'CA',
+    'America/Rankin_Inlet':'CA','America/Resolute':'CA','America/Swift_Current':'CA',
+    'America/Thunder_Bay':'CA','America/Cambridge_Bay':'CA','America/Inuvik':'CA',
+    'Europe/London':'GB',
+    'Europe/Dublin':'IE',
+    'Europe/Paris':'FR','Europe/Berlin':'DE','Europe/Rome':'IT','Europe/Madrid':'ES',
+    'Europe/Amsterdam':'NL','Europe/Brussels':'BE','Europe/Vienna':'AT',
+    'Europe/Warsaw':'PL','Europe/Prague':'CZ','Europe/Budapest':'HU',
+    'Europe/Bucharest':'RO','Europe/Sofia':'BG','Europe/Athens':'GR',
+    'Europe/Helsinki':'FI','Europe/Stockholm':'SE','Europe/Oslo':'NO',
+    'Europe/Copenhagen':'DK','Europe/Zurich':'CH','Europe/Lisbon':'PT',
+    'Europe/Moscow':'RU','Europe/Kiev':'UA','Europe/Minsk':'BY',
+    'Europe/Riga':'LV','Europe/Tallinn':'EE','Europe/Vilnius':'LT',
+    'Europe/Istanbul':'TR',
+    'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU',
+    'Australia/Perth':'AU','Australia/Adelaide':'AU','Australia/Darwin':'AU',
+    'Australia/Hobart':'AU','Australia/Lord_Howe':'AU','Australia/Eucla':'AU',
+    'Australia/Broken_Hill':'AU','Australia/Lindeman':'AU',
+    'Pacific/Auckland':'NZ','Pacific/Chatham':'NZ',
+    'Africa/Monrovia':'LR',
+    'Asia/Yangon':'MM',
+    'Asia/Tokyo':'JP','Asia/Shanghai':'CN','Asia/Hong_Kong':'HK',
+    'Asia/Seoul':'KR','Asia/Taipei':'TW','Asia/Singapore':'SG',
+    'Asia/Kolkata':'IN','Asia/Karachi':'PK','Asia/Dhaka':'BD',
+    'Asia/Bangkok':'TH','Asia/Jakarta':'ID','Asia/Manila':'PH',
+    'Asia/Dubai':'AE','Asia/Riyadh':'SA','Asia/Tehran':'IR',
+    'Asia/Baghdad':'IQ','Asia/Beirut':'LB','Asia/Jerusalem':'IL',
+    'Asia/Almaty':'KZ','Asia/Tashkent':'UZ','Asia/Kabul':'AF',
+    'Asia/Kathmandu':'NP','Asia/Colombo':'LK','Asia/Kuala_Lumpur':'MY',
+    'America/Mexico_City':'MX','America/Cancun':'MX','America/Monterrey':'MX',
+    'America/Bogota':'CO','America/Lima':'PE','America/Santiago':'CL',
+    'America/Sao_Paulo':'BR','America/Buenos_Aires':'AR','America/Caracas':'VE',
+    'America/La_Paz':'BO','America/Asuncion':'PY','America/Montevideo':'UY',
+    'America/Guayaquil':'EC','America/Cayenne':'GF','America/Paramaribo':'SR',
+    'America/Jamaica':'JM','America/Port-au-Prince':'HT','America/Santo_Domingo':'DO',
+    'Africa/Lagos':'NG','Africa/Nairobi':'KE','Africa/Cairo':'EG',
+    'Africa/Johannesburg':'ZA','Africa/Accra':'GH','Africa/Addis_Ababa':'ET',
+    'Africa/Casablanca':'MA','Africa/Tunis':'TN','Africa/Algiers':'DZ',
+    'Pacific/Fiji':'FJ','Pacific/Port_Moresby':'PG','Pacific/Noumea':'NC',
+    'Pacific/Suva':'FJ','Pacific/Tongatapu':'TO','Pacific/Apia':'WS'
+  };
+  let countryCode = '';
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    countryCode = tzCountryMap[tz] || '';
+  } catch(e) {}
+  if (IMPERIAL_COUNTRIES.has(countryCode)) {
+    isFahrenheit = true; isHybrid = false;
+  } else if (HYBRID_COUNTRIES.has(countryCode)) {
+    isFahrenheit = false; isHybrid = true; unitMode = 'hybrid';
+  } else {
+    isFahrenheit = false; isHybrid = false;
+  }
+}
+
 function loadCities() {
-  // Load saved unit preference, or auto-detect from timezone
-  const savedUnit = storageGet(UNIT_KEY);
-  if (savedUnit && ['imperial','metric','hybrid'].includes(savedUnit)) {
-    unitMode = savedUnit;
-    isHybrid = (savedUnit === 'hybrid');
-    isFahrenheit = (savedUnit !== 'metric');
-  } else if (unitMode === 'default') {
-    const IMPERIAL_COUNTRIES = new Set(['US','BS','BZ','KY','FM','MH','PR','GU','VI','AS','MP','LR']);
-    const HYBRID_COUNTRIES = new Set(['GB']);
-    const tzCountryMap = {
-      'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
-      'America/Anchorage':'US','America/Honolulu':'US','America/Phoenix':'US',
-      'America/Indiana/Indianapolis':'US','America/Indiana/Chicago':'US','America/Indiana/Knox':'US',
-      'America/Indiana/Marengo':'US','America/Indiana/Petersburg':'US','America/Indiana/Tell_City':'US',
-      'America/Indiana/Vevay':'US','America/Indiana/Vincennes':'US','America/Indiana/Winamac':'US',
-      'America/Detroit':'US','America/Kentucky/Louisville':'US','America/Kentucky/Monticello':'US',
-      'America/North_Dakota/Beulah':'US','America/North_Dakota/Center':'US','America/North_Dakota/New_Salem':'US',
-      'America/Boise':'US','America/Juneau':'US','America/Sitka':'US','America/Metlakatla':'US',
-      'America/Yakutat':'US','America/Nome':'US','America/Adak':'US',
-      'Pacific/Honolulu':'US','Pacific/Pago_Pago':'AS','Pacific/Guam':'GU',
-      'America/Puerto_Rico':'PR',
-      'America/Toronto':'CA','America/Vancouver':'CA','America/Edmonton':'CA',
-      'America/Winnipeg':'CA','America/Halifax':'CA','America/St_Johns':'CA',
-      'America/Regina':'CA','America/Whitehorse':'CA','America/Yellowknife':'CA',
-      'America/Iqaluit':'CA','America/Moncton':'CA','America/Glace_Bay':'CA',
-      'America/Goose_Bay':'CA','America/Nipigon':'CA','America/Rainy_River':'CA',
-      'America/Rankin_Inlet':'CA','America/Resolute':'CA','America/Swift_Current':'CA',
-      'America/Thunder_Bay':'CA','America/Cambridge_Bay':'CA','America/Inuvik':'CA',
-      'Europe/London':'GB',
-      'Europe/Dublin':'IE',
-      'Europe/Paris':'FR','Europe/Berlin':'DE','Europe/Rome':'IT','Europe/Madrid':'ES',
-      'Europe/Amsterdam':'NL','Europe/Brussels':'BE','Europe/Vienna':'AT',
-      'Europe/Warsaw':'PL','Europe/Prague':'CZ','Europe/Budapest':'HU',
-      'Europe/Bucharest':'RO','Europe/Sofia':'BG','Europe/Athens':'GR',
-      'Europe/Helsinki':'FI','Europe/Stockholm':'SE','Europe/Oslo':'NO',
-      'Europe/Copenhagen':'DK','Europe/Zurich':'CH','Europe/Lisbon':'PT',
-      'Europe/Moscow':'RU','Europe/Kiev':'UA','Europe/Minsk':'BY',
-      'Europe/Riga':'LV','Europe/Tallinn':'EE','Europe/Vilnius':'LT',
-      'Europe/Istanbul':'TR',
-      'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU',
-      'Australia/Perth':'AU','Australia/Adelaide':'AU','Australia/Darwin':'AU',
-      'Australia/Hobart':'AU','Australia/Lord_Howe':'AU','Australia/Eucla':'AU',
-      'Australia/Broken_Hill':'AU','Australia/Lindeman':'AU',
-      'Pacific/Auckland':'NZ','Pacific/Chatham':'NZ',
-      'Africa/Monrovia':'LR',
-      'Asia/Yangon':'MM',
-      'Asia/Tokyo':'JP','Asia/Shanghai':'CN','Asia/Hong_Kong':'HK',
-      'Asia/Seoul':'KR','Asia/Taipei':'TW','Asia/Singapore':'SG',
-      'Asia/Kolkata':'IN','Asia/Karachi':'PK','Asia/Dhaka':'BD',
-      'Asia/Bangkok':'TH','Asia/Jakarta':'ID','Asia/Manila':'PH',
-      'Asia/Dubai':'AE','Asia/Riyadh':'SA','Asia/Tehran':'IR',
-      'Asia/Baghdad':'IQ','Asia/Beirut':'LB','Asia/Jerusalem':'IL',
-      'Asia/Almaty':'KZ','Asia/Tashkent':'UZ','Asia/Kabul':'AF',
-      'Asia/Kathmandu':'NP','Asia/Colombo':'LK','Asia/Kuala_Lumpur':'MY',
-      'America/Mexico_City':'MX','America/Cancun':'MX','America/Monterrey':'MX',
-      'America/Bogota':'CO','America/Lima':'PE','America/Santiago':'CL',
-      'America/Sao_Paulo':'BR','America/Buenos_Aires':'AR','America/Caracas':'VE',
-      'America/La_Paz':'BO','America/Asuncion':'PY','America/Montevideo':'UY',
-      'America/Guayaquil':'EC','America/Cayenne':'GF','America/Paramaribo':'SR',
-      'America/Jamaica':'JM','America/Port-au-Prince':'HT','America/Santo_Domingo':'DO',
-      'Africa/Lagos':'NG','Africa/Nairobi':'KE','Africa/Cairo':'EG',
-      'Africa/Johannesburg':'ZA','Africa/Accra':'GH','Africa/Addis_Ababa':'ET',
-      'Africa/Casablanca':'MA','Africa/Tunis':'TN','Africa/Algiers':'DZ',
-      'Pacific/Fiji':'FJ','Pacific/Port_Moresby':'PG','Pacific/Noumea':'NC',
-      'Pacific/Suva':'FJ','Pacific/Tongatapu':'TO','Pacific/Apia':'WS'
-    };
-    let countryCode = '';
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-      countryCode = tzCountryMap[tz] || '';
-    } catch(e) {}
-    if (IMPERIAL_COUNTRIES.has(countryCode)) {
-      isFahrenheit = true; isHybrid = false;
-    } else if (HYBRID_COUNTRIES.has(countryCode)) {
-      isFahrenheit = false; isHybrid = true; unitMode = 'hybrid';
-    } else {
-      isFahrenheit = false; isHybrid = false;
-    }
+  if (unitMode === 'default') {
+    autoDetectUnit();
   }
   try {
     const s = storageGet(STORAGE_KEY);
@@ -1529,9 +1527,12 @@ document.getElementById('menuHybrid').addEventListener('click', function() { dro
 
 function applyUnit(mode) {
   unitMode = mode;
-  isHybrid = (mode === 'hybrid');
-  isFahrenheit = (mode !== 'metric');
-  storageSet(UNIT_KEY, mode);
+  if (mode === 'default') {
+    autoDetectUnit();
+  } else {
+    isHybrid = (mode === 'hybrid');
+    isFahrenheit = (mode !== 'metric');
+  }
   updateChecks();
   globalCache = {};
   renderCitiesScreen();
