@@ -1553,19 +1553,8 @@ document.getElementById('back-btn').addEventListener('click', function() {
   stopLiveAnim();
   currentCity = null;
   showScreen('cities-screen');
-  renderCitiesScreen();
-  // Poll until the cities screen has content, then restore scroll
-  var attempts = 0;
-  function tryRestore() {
-    var el = document.getElementById('cities-screen');
-    if (el.scrollHeight > el.clientHeight || attempts > 20) {
-      el.scrollTop = citiesScrollY;
-    } else {
-      attempts++;
-      setTimeout(tryRestore, 100);
-    }
-  }
-  setTimeout(tryRestore, 100);
+  var el = document.getElementById('cities-screen');
+  el.scrollTop = citiesScrollY;
 });
 
 // =========================================================
