@@ -17,6 +17,8 @@ let editMode = false;
 const STORAGE_KEY = 'weather_app_cities_v3';
 const UNIT_KEY = 'weather_app_unit_v1';
 const CACHE_KEY = 'weather_app_cache_v1';
+const COORDS_KEY = 'weather_app_coords_v1';
+let cityCoords = {};
 const FAHRENHEIT_COUNTRIES = new Set([
   'US','BS','BZ','KY','PW','FM','MH','PR','GU','VI','AS','MP'
 ]);
@@ -322,16 +324,23 @@ async function buildWeatherData(wx, aqi) {
 }
 async function getWeatherForCity(cityName) {
   if (globalCache[cityName]) return globalCache[cityName];
-  const searchName = cityName.split(',')[0].trim();
-  const results = await geocode(searchName);
-  if (!results.length) throw new Error('City not found: ' + searchName);
-  const loc = results[0];
-  const [wx, aqi] = await Promise.all([fetchWeatherData(loc.latitude, loc.longitude), fetchAQI(loc.latitude, loc.longitude)]);
+  var lat, lon;
+  if (cityCoords[cityName]) {
+    lat = cityCoords[cityName].lat;
+    lon = cityCoords[cityName].lon;
+  } else {
+    const results = await geocode(cityName);
+    if (!results.length) throw new Error('City not found: ' + cityName);
+    lat = results[0].latitude;
+    lon = results[0].longitude;
+    cityCoords[cityName] = { lat: lat, lon: lon };
+    storageSet(COORDS_KEY, JSON.stringify(cityCoords));
+  }
+  const [wx, aqi] = await Promise.all([fetchWeatherData(lat, lon), fetchAQI(lat, lon)]);
   const data = await buildWeatherData(wx, aqi);
-  data.lat = loc.latitude;
-  data.lon = loc.longitude;
+  data.lat = lat;
+  data.lon = lon;
   globalCache[cityName] = data;
-  // Persist weather cache so next open shows instantly
   try {
     const wc = JSON.parse(storageGet(CACHE_KEY) || '{}');
     wc[cityName] = data;
@@ -484,18 +493,72 @@ function loadCities() {
     autoDetectUnit();
   }
   try {
+    const cc = storageGet(COORDS_KEY);
+    if (cc) cityCoords = JSON.parse(cc);
+  } catch(e) {}
+  try {
     const s = storageGet(STORAGE_KEY);
     if (s) {
       const parsed = JSON.parse(s);
       if (Array.isArray(parsed) && parsed.length > 0) {
         savedCities = parsed;
+        migrateOldCities();
         return;
       }
     }
   } catch (e) {}
-  // No valid saved cities — load defaults and persist them
   savedCities = DEFAULT_CITIES.slice();
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
+}
+
+function migrateOldCities() {
+  var changed = false;
+  var seen = {};
+  var migrated = [];
+  for (var i = 0; i < savedCities.length; i++) {
+    var city = savedCities[i];
+    var clean = city.replace(/\s*\(.*?\)\s*/g, '').trim();
+    if (clean !== city) changed = true;
+    city = clean;
+    if (city.indexOf(',') !== -1 && !cityCoords[city]) {
+      var parts = city.split(',');
+      var shortName = parts[0].trim();
+      if (seen[shortName]) {
+        migrated.push(city);
+        migrateOneCity(city);
+      } else {
+        seen[shortName] = true;
+        if (cityCoords[city]) {
+          cityCoords[shortName] = cityCoords[city];
+          delete cityCoords[city];
+        }
+        migrated.push(shortName);
+        migrateOneCity(shortName);
+        changed = true;
+      }
+    } else {
+      seen[city] = true;
+      migrated.push(city);
+      if (!cityCoords[city]) {
+        migrateOneCity(city);
+      }
+    }
+  }
+  if (changed) {
+    savedCities = migrated;
+    storageSet(STORAGE_KEY, JSON.stringify(savedCities));
+    storageSet(COORDS_KEY, JSON.stringify(cityCoords));
+  }
+}
+
+function migrateOneCity(cityName) {
+  if (cityCoords[cityName]) return;
+  geocode(cityName).then(function(results) {
+    if (results.length && !cityCoords[cityName]) {
+      cityCoords[cityName] = { lat: results[0].latitude, lon: results[0].longitude };
+      storageSet(COORDS_KEY, JSON.stringify(cityCoords));
+    }
+  }).catch(function() {});
 }
 function saveCities() {
   // Always keep current location pinned at index 0
@@ -506,8 +569,12 @@ function saveCities() {
   }
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
 }
-function addCity(name) {
+function addCity(name, lat, lon) {
   if (!savedCities.includes(name)) { savedCities.push(name); saveCities(); }
+  if (lat != null && lon != null) {
+    cityCoords[name] = { lat: lat, lon: lon };
+    storageSet(COORDS_KEY, JSON.stringify(cityCoords));
+  }
 }
 function showDeleteConfirm(cityName, cardEl) {
   const modal = document.getElementById('delete-confirm-modal');
@@ -542,6 +609,8 @@ function showDeleteConfirm(cityName, cardEl) {
 function removeCity(name) {
   savedCities = savedCities.filter(function(c) { return c !== name; });
   delete globalCache[name];
+  delete cityCoords[name];
+  storageSet(COORDS_KEY, JSON.stringify(cityCoords));
   saveCities();
 }
 
@@ -683,6 +752,38 @@ async function renderCitiesScreen() {
   }
 }
 
+var dragScrollRAF = null;
+(function() {
+  var screen = document.getElementById('cities-screen');
+  var edgeSize = 60;
+  var maxSpeed = 12;
+  screen.addEventListener('dragover', function(e) {
+    if (!dragSrcCity) return;
+    var rect = screen.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var h = rect.height;
+    if (dragScrollRAF) cancelAnimationFrame(dragScrollRAF);
+    if (y < edgeSize) {
+      var speed = maxSpeed * (1 - y / edgeSize);
+      (function scroll() {
+        screen.scrollTop -= speed;
+        dragScrollRAF = requestAnimationFrame(scroll);
+      })();
+    } else if (y > h - edgeSize) {
+      var speed = maxSpeed * (1 - (h - y) / edgeSize);
+      (function scroll() {
+        screen.scrollTop += speed;
+        dragScrollRAF = requestAnimationFrame(scroll);
+      })();
+    } else {
+      dragScrollRAF = null;
+    }
+  });
+  document.addEventListener('dragend', function() {
+    if (dragScrollRAF) { cancelAnimationFrame(dragScrollRAF); dragScrollRAF = null; }
+  });
+})();
+
 // =========================================================
 // SEARCH
 // =========================================================
@@ -696,16 +797,22 @@ document.getElementById('city-search').addEventListener('input', function() {
     if (!results.length) {
       el.innerHTML = '<div class="search-result-item">No results for "' + val + '"</div>';
     } else {
-      el.innerHTML = results.slice(0,5).map(function(r) {
+      el.innerHTML = results.slice(0,5).map(function(r, i) {
         const sub = [r.admin1, r.country].filter(Boolean).join(', ');
-        const fullName = r.name + (sub ? ', ' + sub : '');
-        return '<div class="search-result-item" data-name="' + fullName + '"><div>' + r.name + '</div><div class="sub">' + sub + '</div></div>';
+        var cleanName = r.name.replace(/\s*\(.*?\)\s*/g, '').trim();
+        return '<div class="search-result-item" data-idx="' + i + '"><div>' + cleanName + '</div><div class="sub">' + sub + '</div></div>';
       }).join('');
       el.querySelectorAll('.search-result-item').forEach(function(item) {
         item.addEventListener('click', function() {
-          const name = item.dataset.name;
-          if (name) {
-            addCity(name);
+          const idx = parseInt(item.dataset.idx);
+          const r = results[idx];
+          if (r) {
+            var displayName = r.name.replace(/\s*\(.*?\)\s*/g, '').trim();
+            if (savedCities.includes(displayName)) {
+              var sub = [r.admin1, r.country].filter(Boolean).join(', ');
+              displayName = displayName + (sub ? ', ' + sub : '');
+            }
+            addCity(displayName, r.latitude, r.longitude);
             document.getElementById('city-search').value = '';
             hideSearch();
             renderCitiesScreen();
