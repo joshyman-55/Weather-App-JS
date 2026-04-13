@@ -11,17 +11,24 @@ body {
   justify-content: center;
   align-items: flex-start;
   min-height: 100vh;
+  position: relative;
 }
 
 /* ===== SCREENS ===== */
 .screen {
-  display: none;
   width: 400px;
   min-height: 100vh;
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
   flex-shrink: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
 }
-.screen.active { display: block; }
+.screen.active { visibility: visible; pointer-events: auto; z-index: 1; }
 
 /* ===== CITIES SCREEN ===== */
 #cities-screen { background: #000; overflow-y: auto; height: 100vh; }
@@ -248,7 +255,6 @@ body {
 
 /* ===== DETAIL SCREEN ===== */
 #detail-screen {
-  position: relative;
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -603,8 +609,8 @@ body {
 #delete-confirm-yes { background: #ff453a; color: #fff; }
 
 /* ===== MAP SCREEN ===== */
-#map-screen { background: #0a0a1a; flex-direction: column; height: 100vh; overflow: hidden; }
-#map-screen.active { display: flex; min-height: unset; }
+#map-screen { background: #0a0a1a; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+#map-screen.active { min-height: unset; }
 .map-header {
   display: flex;
   align-items: center;

@@ -1553,8 +1553,6 @@ document.getElementById('back-btn').addEventListener('click', function() {
   stopLiveAnim();
   currentCity = null;
   showScreen('cities-screen');
-  var el = document.getElementById('cities-screen');
-  el.scrollTop = citiesScrollY;
 });
 
 // =========================================================
