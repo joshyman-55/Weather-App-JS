@@ -33,24 +33,24 @@ function tempCategory(f) {
   if (f <= 32)  return 'frigid';   // -57°F to 32°F
   if (f <= 49)  return 'cold';     // 33°F to 49°F
   if (f <= 59)  return 'chilly';   // 50°F to 59°F
-  if (f <= 77)  return 'warm';    // 60°F to 77°F
-  if (f <= 95)  return 'hot';     // 78°F to 95°F
-  if (f <= 122) return 'scorched';      // 96°F to 122°F
-  return 'scalding';               // >= 123°F
+  if (f <= 77)  return 'mild';    // 60°F to 77°F
+  if (f <= 95)  return 'warm';     // 78°F to 95°F
+  if (f <= 122) return 'hot';      // 96°F to 122°F
+  return 'scorched';               // >= 123°F
 }
 const TEMP_COLORS = {
   bitter:'#32174d',  // Dark purple  <= -58°F
   frigid:'#8601af',  // Violet (RYB)  -57°F to 32°F
   cold:  '#0000ff',  // Blue         33°F to 49°F
   chilly:'#00ff00',  // Lime         50°F to 59°F
-  warm: '#ffff00',  // Yellow       60°F to 77°F
-  hot:  '#ffa500',  // Orange       78°F to 94°F
-  scorched:   '#ff0000',  // Red          95°F to 121°F
-  scalding:'#800000' // Maroon       >= 122°F
+  mild: '#ffff00',  // Yellow       60°F to 77°F
+  warm:  '#ffa500',  // Orange       78°F to 94°F
+  hot:   '#ff0000',  // Red          95°F to 121°F
+  scorched:'#800000' // Maroon       >= 122°F
 };
 const TEMP_TEXT = {
   bitter:'#ffffff', frigid:'#ffffff', cold:'#ffffff', chilly:'#000000',
-  warm:'#000000', hot:'#ffffff', scorched:'#ffffff', scalding:'#ffffff'
+  mild:'#000000', warm:'#ffffff', hot:'#ffffff', scorched:'#ffffff'
 };
 
 // Zone START temperatures for gradient — each color begins at this °F value
@@ -59,10 +59,10 @@ const GRAD_BOUNDS = [
   { t: -57, hex: '#8601af' },  // Frigid:   -57°F to 32°F
   { t:  33, hex: '#0000ff' },  // Cold:     33°F to 49°F
   { t:  50, hex: '#00ff00' },  // Chilly:   50°F to 59°F
-  { t:  60, hex: '#ffff00' },  // Warm:    60°F to 77°F
-  { t:  78, hex: '#ffa500' },  // Hot:     78°F to 95°F
-  { t:  96, hex: '#ff0000' },  // Scorched:      96°F to 122°F
-  { t: 123, hex: '#800000' }   // Scalding: >= 123°F
+  { t:  60, hex: '#ffff00' },  // Mild:    60°F to 77°F
+  { t:  78, hex: '#ffa500' },  // Warm:     78°F to 95°F
+  { t:  96, hex: '#ff0000' },  // Hot:      96°F to 122°F
+  { t: 123, hex: '#800000' }   // Scorched: >= 123°F
 ];
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
@@ -1948,6 +1948,10 @@ try {
 } catch(e) {}
 
 // Render immediately — cached cities show instantly, uncached show spinners then load
+renderCitiesScreen();
+
+// On startup: immediately fetch fresh data, bypassing any stale cache
+globalCache = {};
 renderCitiesScreen();
 
 // Every 5 minutes — refresh weather data, keep city list intact
