@@ -29,40 +29,35 @@ const LOC_KEY = '__current_location__';
 // TEMPERATURE UTILS
 // =========================================================
 function tempCategory(f) {
-  if (f <= -58) return 'bitter';   // <= -58°F (-50°C and below)
-  if (f <= 32)  return 'frigid';   // -57°F to 32°F
+  if (f <= 32)  return 'frigid';   // <= 32°F
   if (f <= 49)  return 'cold';     // 33°F to 49°F
   if (f <= 59)  return 'chilly';   // 50°F to 59°F
-  if (f <= 77)  return 'mild';    // 60°F to 77°F
+  if (f <= 77)  return 'mild';     // 60°F to 77°F
   if (f <= 95)  return 'warm';     // 78°F to 95°F
   if (f <= 122) return 'hot';      // 96°F to 122°F
-  return 'scorched';               // >= 123°F
+  return 'hot';                    // >= 123°F (no scorched)
 }
 const TEMP_COLORS = {
-  bitter:'#32174d',  // Dark purple  <= -58°F
-  frigid:'#8601af',  // Violet (RYB)  -57°F to 32°F
+  frigid:'#8601af',  // Violet (RYB)  <= 32°F
   cold:  '#0000ff',  // Blue         33°F to 49°F
   chilly:'#00ff00',  // Lime         50°F to 59°F
-  mild: '#ffff00',  // Yellow       60°F to 77°F
-  warm:  '#ffa500',  // Orange       78°F to 94°F
-  hot:   '#ff0000',  // Red          95°F to 121°F
-  scorched:'#800000' // Maroon       >= 122°F
+  mild:  '#ffff00',  // Yellow       60°F to 77°F
+  warm:  '#ffa500',  // Orange       78°F to 95°F
+  hot:   '#ff0000',  // Red          >= 96°F
 };
 const TEMP_TEXT = {
-  bitter:'#ffffff', frigid:'#ffffff', cold:'#ffffff', chilly:'#000000',
-  mild:'#000000', warm:'#ffffff', hot:'#ffffff', scorched:'#ffffff'
+  frigid:'#ffffff', cold:'#ffffff', chilly:'#000000',
+  mild:'#000000', warm:'#ffffff', hot:'#ffffff'
 };
 
 // Zone START temperatures for gradient — each color begins at this °F value
 const GRAD_BOUNDS = [
-  { t: -58, hex: '#32174d' },  // Bitter:   <= -58°F
-  { t: -57, hex: '#8601af' },  // Frigid:   -57°F to 32°F
+  { t: -58, hex: '#8601af' },  // Frigid:   <= 32°F
   { t:  33, hex: '#0000ff' },  // Cold:     33°F to 49°F
   { t:  50, hex: '#00ff00' },  // Chilly:   50°F to 59°F
   { t:  60, hex: '#ffff00' },  // Mild:    60°F to 77°F
   { t:  78, hex: '#ffa500' },  // Warm:     78°F to 95°F
-  { t:  96, hex: '#ff0000' },  // Hot:      96°F to 122°F
-  { t: 123, hex: '#800000' }   // Scorched: >= 123°F
+  { t:  96, hex: '#ff0000' },  // Hot:      >= 96°F
 ];
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
@@ -1035,14 +1030,12 @@ function makeGrad(min, max) {
   if (min >= max) { const c = tempColor(min); return 'linear-gradient(to right,' + c + ',' + c + ')'; }
   // Category boundary temperatures and their exact circle colors
   const BOUNDS = [
-    { t: -58, hex: '#32174d' },
-    { t: -57, hex: '#8601af' },
+    { t: -58, hex: '#8601af' },
     { t:  33, hex: '#0000ff' },
     { t:  50, hex: '#00ff00' },
     { t:  60, hex: '#ffff00' },
     { t:  78, hex: '#ffa500' },
-    { t:  95, hex: '#ff0000' },
-    { t: 122, hex: '#800000' }
+    { t:  96, hex: '#ff0000' },
   ];
   // Collect only the boundary points that fall within [min, max], plus clamped endpoints
   const pts = [];
@@ -1101,11 +1094,11 @@ function makeFeelsLikeCard(feelsLikeF, actualF, windSpeed, humidity) {
   if (diff === 0) {
     reason = 'Similar to actual temperature (exact)';
   } else if (diff < 0) {
-    reason = (cat === 'bitter' || cat === 'frigid')
+    reason = (cat === 'frigid')
       ? 'Wind makes it colder'
       : 'Wind makes it cooler';
   } else {
-    reason = (cat === 'hot' || cat === 'scorched')
+    reason = (cat === 'hot')
       ? 'Feels hotter than actual temperature'
       : 'Feels warmer than actual temperature';
   }
@@ -1698,7 +1691,7 @@ function buildTempLegend() {
   var lo  = (isFahrenheit && !isHybrid) ? '-58°' : '-50°';
   var mid = (isFahrenheit && !isHybrid) ? '32°'  : '0°';
   var hi  = (isFahrenheit && !isHybrid) ? '123°' : '51°';
-  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 0.5%,#0000ff 50%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.7%,#ff0000 85.1%,#800000 100%)';
+  var grad = 'linear-gradient(to right,#8601af 0%,#0000ff 50%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.7%,#ff0000 100%)';
   return '<div class="map-legend-title">Temperature (' + unit + ')</div>' +
     '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:' + grad + '"></div></div>' +
     '<div class="map-legend-labels"><span class="map-legend-label">' + lo + '</span><span class="map-legend-label">' + mid + '</span><span class="map-legend-label">' + hi + '</span></div>';
