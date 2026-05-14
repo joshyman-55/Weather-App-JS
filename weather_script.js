@@ -4,6 +4,10 @@
 let isFahrenheit = true;
 let unitMode = 'default';
 let isHybrid = false;
+
+// Advanced custom units (used when unitMode === 'advanced')
+const ADVANCED_KEY = 'weather_app_advanced_v1';
+let advancedUnits = { temp: 'F', wind: 'mph', precip: 'in', vis: 'mi', pressure: 'hpa' };
 let savedCities = [];
 let globalCache = {};
 let currentCity = null;
@@ -61,8 +65,52 @@ const GRAD_BOUNDS = [
 ];
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
-function toDisplay(f)     { return (isFahrenheit && !isHybrid) ? Math.round(f) : Math.round((f-32)*5/9); }
+function toDisplay(f) {
+  if (unitMode === 'advanced') return advancedUnits.temp === 'F' ? Math.round(f) : Math.round((f-32)*5/9);
+  return (isFahrenheit && !isHybrid) ? Math.round(f) : Math.round((f-32)*5/9);
+}
 function toDisplayStr(f)  { return toDisplay(f) + '\u00b0'; }
+
+function displayWind(mph) {
+  if (unitMode === 'advanced') {
+    switch(advancedUnits.wind) {
+      case 'kmh': return Math.round(mph * 1.60934) + ' km/h';
+      case 'ms':  return (mph * 0.44704).toFixed(1) + ' m/s';
+      case 'kn':  return Math.round(mph * 0.868976) + ' kn';
+      default:    return mph + ' mph';
+    }
+  }
+  return (!isHybrid && !isFahrenheit) ? Math.round(mph * 1.60934) + ' km/h' : mph + ' mph';
+}
+function displayPrecip(inches) {
+  if (unitMode === 'advanced') {
+    switch(advancedUnits.precip) {
+      case 'mm': return (inches * 25.4).toFixed(1) + ' mm';
+      case 'cm': return (inches * 2.54).toFixed(2) + ' cm';
+      default:   return inches.toFixed(2) + ' in';
+    }
+  }
+  return (!isHybrid && !isFahrenheit) ? (inches*2.54).toFixed(2) + ' cm' : inches.toFixed(2) + ' in';
+}
+function displayVis(meters) {
+  if (unitMode === 'advanced') {
+    switch(advancedUnits.vis) {
+      case 'km': return (meters/1000).toFixed(1) + ' km';
+      case 'm':  return Math.round(meters) + ' m';
+      default:   return (meters/1609.34).toFixed(1) + ' mi';
+    }
+  }
+  return (!isHybrid && !isFahrenheit) ? (meters/1000).toFixed(1) + ' km' : (meters/1609.34).toFixed(1) + ' mi';
+}
+function displayPressure(hpa) {
+  if (unitMode !== 'advanced') return null; // not shown in non-advanced modes
+  switch(advancedUnits.pressure) {
+    case 'inhg': return (hpa * 0.02953).toFixed(2) + ' inHg';
+    case 'mb':   return Math.round(hpa) + ' mb';
+    case 'mmhg': return Math.round(hpa * 0.750062) + ' mmHg';
+    default:     return Math.round(hpa) + ' hPa';
+  }
+}
 
 // =========================================================
 // WEATHER UTILS
@@ -220,7 +268,7 @@ async function geocode(city) {
 async function fetchWeatherData(lat, lon) {
   const r = await fetch(
     'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
-    '&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m,dew_point_2m,visibility' +
+    '&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m,dew_point_2m,visibility,surface_pressure' +
     '&hourly=temperature_2m,weather_code,uv_index' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum' +
     '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timeformat=iso8601&timezone=auto&forecast_days=10'
@@ -249,10 +297,15 @@ function milHour(iso) {
   return d.getHours()*100 + d.getMinutes();
 }
 async function buildWeatherData(wx, aqi) {
-  const cur = wx.current, daily = wx.daily, hourly = wx.hourly;
-  const sunriseInt = milHour(daily.sunrise[0]);
-  const sunsetInt  = milHour(daily.sunset[0]);
-  const currentMilitary = cur.time ? milHour(cur.time+':00') : new Date().getHours()*100;
+  const cur    = wx.current  || {};
+  const daily  = wx.daily    || {};
+  const hourly = wx.hourly   || { time: [], temperature_2m: [], weather_code: [], uv_index: [] };
+  const sunriseArr = (daily.sunrise && daily.sunrise.length) ? daily.sunrise : null;
+  const sunsetArr  = (daily.sunset  && daily.sunset.length)  ? daily.sunset  : null;
+  const nowHour    = new Date().getHours();
+  const sunriseInt = sunriseArr ? milHour(sunriseArr[0]) : 600;
+  const sunsetInt  = sunsetArr  ? milHour(sunsetArr[0])  : 2000;
+  const currentMilitary = cur.time ? milHour(cur.time+':00') : nowHour * 100;
   const isDay = currentMilitary >= sunriseInt && currentMilitary < sunsetInt;
   const utcOffsetSeconds = wx.utc_offset_seconds || 0;
   // Find the index matching the current hour in the API's hourly array.
@@ -281,44 +334,53 @@ async function buildWeatherData(wx, aqi) {
     const hh = parseInt(timeStr.split(':')[0], 10);
     const mm = parseInt(timeStr.split(':')[1], 10);
     const timeMil = hh * 100 + mm;
+    var hTemp = hourly.temperature_2m[i];
+    if (hTemp == null) continue;   // skip hours with no data rather than show 0 or garbage
     hourlyData.push({
       time: timeMil,
-      temp: Math.round(hourly.temperature_2m[i]),
-      condition: decodeCode(hourly.weather_code[i]),
+      temp: Math.round(hTemp),
+      condition: decodeCode(hourly.weather_code[i] != null ? hourly.weather_code[i] : 0),
       uvIndex: hourly.uv_index[i] || 0
     });
   }
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const forecast = daily.time.map(function(t, i) {
+  const dailyTime = daily.time || [];
+  const forecast = dailyTime.map(function(t, i) {
     return {
       day: i === 0 ? 'Today' : dayNames[new Date(t+'T12:00').getDay()],
-      min: Math.round(daily.temperature_2m_min[i]),
-      max: Math.round(daily.temperature_2m_max[i]),
-      condition: decodeCode(daily.weather_code[i])
+      min: Math.round((daily.temperature_2m_min && daily.temperature_2m_min[i] != null) ? daily.temperature_2m_min[i] : 0),
+      max: Math.round((daily.temperature_2m_max && daily.temperature_2m_max[i] != null) ? daily.temperature_2m_max[i] : 0),
+      condition: decodeCode((daily.weather_code && daily.weather_code[i] != null) ? daily.weather_code[i] : 0)
     };
   });
   const uvMatch = hourlyData.find(function(h) { return Math.abs(h.time - currentMilitary) < 100; });
   const uvNow = uvMatch ? uvMatch.uvIndex : 0;
   return {
-    currentTemp: Math.round(cur.temperature_2m),
-    feelsLike: Math.round(cur.apparent_temperature),
-    condition: decodeCode(cur.weather_code),
+    currentTemp: Math.round(cur.temperature_2m    != null ? cur.temperature_2m    : 0),
+    feelsLike:   Math.round(cur.apparent_temperature != null ? cur.apparent_temperature : 0),
+    condition: decodeCode(cur.weather_code != null ? cur.weather_code : 0),
     isDay, sunriseInt, sunsetInt, currentMilitary,
-    sunrise: fmt12(daily.sunrise[0]),
-    sunset:  fmt12(daily.sunset[0]),
-    humidity: cur.relative_humidity_2m,
-    windSpeed: Math.round(cur.wind_speed_10m),
-    windDir: compassDir(cur.wind_direction_10m),
-    dewPoint: Math.round(cur.dew_point_2m),
+    sunrise: sunriseArr ? fmt12(sunriseArr[0]) : '--',
+    sunset:  sunsetArr  ? fmt12(sunsetArr[0])  : '--',
+    humidity:  cur.relative_humidity_2m   != null ? cur.relative_humidity_2m   : 0,
+    windSpeed: Math.round(cur.wind_speed_10m  != null ? cur.wind_speed_10m  : 0),
+    windDir:   compassDir(cur.wind_direction_10m != null ? cur.wind_direction_10m : 0),
+    dewPoint:  Math.round(cur.dew_point_2m    != null ? cur.dew_point_2m    : 50),
     uvIndex: Math.round(uvNow),
     airQuality: aqi,
     precipitation: (daily.precipitation_sum && daily.precipitation_sum[0]) ? daily.precipitation_sum[0] : 0,
-    visibility: cur.visibility,
+    visibility: cur.visibility != null ? cur.visibility : 10000,
+    pressure: cur.surface_pressure != null ? cur.surface_pressure : null,
     forecast, hourly: hourlyData, utcOffsetSeconds
   };
 }
+var WEATHER_TTL = 5 * 60 * 1000; // 5 minutes
+
 async function getWeatherForCity(cityName) {
-  if (globalCache[cityName]) return globalCache[cityName];
+  var cached = globalCache[cityName];
+  if (cached && cached.fetchedAt && (Date.now() - cached.fetchedAt) < WEATHER_TTL) {
+    return cached;
+  }
   var lat, lon;
   if (cityCoords[cityName]) {
     lat = cityCoords[cityName].lat;
@@ -331,16 +393,42 @@ async function getWeatherForCity(cityName) {
     cityCoords[cityName] = { lat: lat, lon: lon };
     storageSet(COORDS_KEY, JSON.stringify(cityCoords));
   }
-  const [wx, aqi] = await Promise.all([fetchWeatherData(lat, lon), fetchAQI(lat, lon)]);
-  const data = await buildWeatherData(wx, aqi);
+  var wx = null, aqi = 0;
+  try {
+    var results2 = await Promise.all([fetchWeatherData(lat, lon), fetchAQI(lat, lon)]);
+    wx  = results2[0];
+    aqi = results2[1];
+  } catch(e) {}
+
+  // If API failed or returned an error, reuse last good cached data if available,
+  // otherwise build a minimal fallback so the UI shows something.
+  var apiOk = wx && wx.current && !wx.error;
+  var data;
+  if (apiOk) {
+    data = await buildWeatherData(wx, aqi);
+  } else {
+    var reason = wx && wx.reason ? wx.reason : 'API unavailable';
+    console.warn('Weather API fallback for ' + cityName + ': ' + reason);
+    // Prefer last good cached data over a fake placeholder
+    var lastGood = globalCache[cityName];
+    if (lastGood && lastGood.currentTemp != null && !lastGood.isFallback) {
+      data = Object.assign({}, lastGood);
+    } else {
+      data = await buildWeatherData({}, 0);
+    }
+    data.isFallback = true;
+  }
   data.lat = lat;
   data.lon = lon;
+  data.fetchedAt = apiOk ? Date.now() : 0;  // 0 = retry next time
   globalCache[cityName] = data;
-  try {
-    const wc = JSON.parse(storageGet(CACHE_KEY) || '{}');
-    wc[cityName] = data;
-    storageSet(CACHE_KEY, JSON.stringify(wc));
-  } catch(e) {}
+  if (apiOk) {
+    try {
+      const wc = JSON.parse(storageGet(CACHE_KEY) || '{}');
+      wc[cityName] = data;
+      storageSet(CACHE_KEY, JSON.stringify(wc));
+    } catch(e) {}
+  }
   return data;
 }
 
@@ -484,6 +572,16 @@ function autoDetectUnit() {
 }
 
 function loadCities() {
+  try {
+    var savedUnit = storageGet(UNIT_KEY);
+    if (savedUnit && ['default','imperial','metric','hybrid','advanced'].includes(savedUnit)) {
+      unitMode = savedUnit;
+      if (savedUnit === 'advanced') {
+        try { var au = JSON.parse(storageGet(ADVANCED_KEY) || 'null'); if (au) advancedUnits = Object.assign(advancedUnits, au); } catch(e) {}
+        isFahrenheit = (advancedUnits.temp === 'F'); isHybrid = false;
+      } else if (savedUnit !== 'default') { isHybrid=(savedUnit==='hybrid'); isFahrenheit=(savedUnit==='imperial'); }
+    }
+  } catch(e) {}
   if (unitMode === 'default') {
     autoDetectUnit();
   }
@@ -564,12 +662,21 @@ function saveCities() {
   }
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
 }
+const CITY_LIMIT = 50;
+function nonLocCityCount() {
+  const locCity = storageGet(LOC_KEY);
+  return savedCities.filter(function(c) { return c !== locCity; }).length;
+}
 function addCity(name, lat, lon) {
-  if (!savedCities.includes(name)) { savedCities.push(name); saveCities(); }
+  if (!savedCities.includes(name)) {
+    if (nonLocCityCount() >= CITY_LIMIT) return false;
+    savedCities.push(name); saveCities();
+  }
   if (lat != null && lon != null) {
     cityCoords[name] = { lat: lat, lon: lon };
     storageSet(COORDS_KEY, JSON.stringify(cityCoords));
   }
+  return true;
 }
 function showDeleteConfirm(cityName, cardEl) {
   const modal = document.getElementById('delete-confirm-modal');
@@ -640,7 +747,13 @@ function showScreen(id) {
 // CITIES SCREEN
 // =========================================================
 async function renderCitiesScreen() {
-  showScreen('cities-screen');
+  // Only switch to cities screen if we're not on detail/map — avoids yanking user away
+  var activeId = ['cities-screen','detail-screen','map-screen'].find(function(id) {
+    return document.getElementById(id).classList.contains('active');
+  });
+  if (activeId !== 'detail-screen' && activeId !== 'map-screen') {
+    showScreen('cities-screen');
+  }
   // Sync menu button label with edit mode state
   syncEditModeUI();
 
@@ -725,21 +838,32 @@ async function renderCitiesScreen() {
         const delBtn = card.querySelector('.delete-btn');
         if (delBtn) delBtn.addEventListener('click', function(e) { e.stopPropagation(); showDeleteConfirm(city, card); });
         card.addEventListener('click', function(e) { if (!e.target.classList.contains('delete-btn')) showDetail(city); });
+        // Subtle offline indicator when showing fallback data
+        if (data.isFallback) {
+          var badge = document.createElement('div');
+          var badgeColor = tempTextColor(data.currentTemp); // black on lime/yellow, white elsewhere
+          badge.style.cssText = 'position:absolute;bottom:8px;left:18px;font-size:10px;opacity:0.6;color:' + badgeColor + ';font-family:Roboto,sans-serif;';
+          badge.textContent = 'Offline — showing estimate';
+          card.appendChild(badge);
+        }
       }
 
-      // If already cached — render instantly, then fetch fresh in background
-      if (globalCache[city]) {
-        renderCard(globalCache[city]);
+      // If already cached AND not a forced refresh — render instantly, then silently refresh in background.
+      // If fetchedAt === 0 it was cleared by the Refresh action — show spinner and wait for real data.
+      var cached = globalCache[city];
+      if (cached && cached.fetchedAt !== 0) {
+        renderCard(cached);
         getWeatherForCity(city).then(function(data) { renderCard(data); }).catch(function() {});
       } else {
         // Not cached — fetch and render when done
         getWeatherForCity(city).then(function(data) {
           renderCard(data);
         }).catch(function() {
-          card.className = 'city-card card-cold';
-          card.dataset.city = city;
-          card.innerHTML = '<div class="card-top"><div><div class="city-name">' + city.split(',')[0] + '</div><div class="city-condition" style="opacity:0.6">Unavailable</div></div></div>';
-          card.addEventListener('click', function() { showDetail(city); });
+          // Last resort — show an error card without fake temperature data
+          renderCard({
+            currentTemp: 0, feelsLike: 0, condition: 'Unavailable', isDay: true,
+            forecast: [{max:0,min:0}], utcOffsetSeconds: 0, isFallback: true
+          });
         });
       }
 
@@ -807,6 +931,12 @@ document.getElementById('city-search').addEventListener('input', function() {
               var sub = [r.admin1, r.country].filter(Boolean).join(', ');
               displayName = displayName + (sub ? ', ' + sub : '');
             }
+            if (!savedCities.includes(displayName) && nonLocCityCount() >= CITY_LIMIT) {
+              var el2 = document.getElementById('search-results');
+              el2.innerHTML = '<div class="search-result-item" style="color:#f87171;font-weight:500;">City limit reached (50 max). Remove a city to add a new one.</div>';
+              el2.classList.add('visible');
+              return;
+            }
             addCity(displayName, r.latitude, r.longitude);
             document.getElementById('city-search').value = '';
             hideSearch();
@@ -841,9 +971,11 @@ async function showDetail(city) {
   ds.scrollTop = 0;
   currentCity = city;
   document.getElementById('detail-city').textContent = city.split(',')[0].trim();
-  document.getElementById('detail-temp').textContent = '--';
+  document.getElementById('detail-temp').textContent = '';
+  document.getElementById('detail-circle').style.backgroundColor = 'rgba(255,255,255,0.15)';
+  document.getElementById('detail-circle').innerHTML = '<div class="spinner"></div>';
   document.getElementById('detail-icon').innerHTML = '';
-  document.getElementById('detail-condition').textContent = '';
+  document.getElementById('detail-condition').textContent = 'Loading…';
   document.getElementById('hourly-inner').innerHTML = '';
   document.getElementById('forecast-rows').innerHTML = '';
   document.getElementById('detail-grid').innerHTML = '';
@@ -853,8 +985,15 @@ async function showDetail(city) {
     const data = await getWeatherForCity(city);
     renderDetail(city, data);
   } catch (e) {
+    // Last-resort fallback — getWeatherForCity shouldn't throw anymore but just in case
     console.error('showDetail error:', e);
-    document.getElementById('detail-condition').textContent = 'Error: ' + (e && e.message ? e.message : String(e));
+    try {
+      const fallback = await buildWeatherData({}, 0);
+      fallback.lat = null; fallback.lon = null; fallback.isFallback = true;
+      renderDetail(city, fallback);
+    } catch(e2) {
+      document.getElementById('detail-condition').textContent = 'Could not load weather data. Try again later.';
+    }
   }
 }
 function renderDetail(city, data) {
@@ -863,6 +1002,7 @@ function renderDetail(city, data) {
     document.getElementById('detail-city').textContent = city.split(',')[0].trim();
     const circle = document.getElementById('detail-circle');
     circle.style.backgroundColor = tempColor(data.currentTemp);
+    circle.innerHTML = '<span id="detail-temp"></span>';
     const tempEl = document.getElementById('detail-temp');
     tempEl.textContent = toDisplayStr(data.currentTemp);
     tempEl.style.color = tempTextColor(data.currentTemp);
@@ -939,6 +1079,11 @@ function setDetailBg(condition, isDay, currentMilitary, sunriseInt, sunsetInt) {
 function renderHourly(data) {
   const inner = document.getElementById('hourly-inner');
   inner.innerHTML = '';
+  // Don't show hourly strip when on fallback data — no real hourly values available
+  if (data.isFallback || !data.hourly || !data.hourly.length) {
+    inner.innerHTML = '<div style="color:rgba(255,255,255,0.45);font-size:13px;padding:16px 8px;font-family:Roboto,sans-serif;">Hourly data unavailable</div>';
+    return;
+  }
   const sunriseHour = Math.floor(data.sunriseInt/100);
   const sunsetHour  = Math.floor(data.sunsetInt/100);
   const nowHour     = Math.floor(data.currentMilitary/100);
@@ -982,6 +1127,10 @@ function fmtMil(mil) {
 function renderForecast(data) {
   const rows = document.getElementById('forecast-rows');
   rows.innerHTML = '';
+  if (data.isFallback || !data.forecast || !data.forecast.length) {
+    rows.innerHTML = '<div style="color:rgba(255,255,255,0.45);font-size:13px;padding:16px 8px;font-family:Roboto,sans-serif;">Forecast unavailable</div>';
+    return;
+  }
   for (let i = 0; i < data.forecast.length; i++) {
     const day = data.forecast[i];
     const row = document.createElement('div');
@@ -1064,16 +1213,19 @@ function renderDetailGrid(data) {
   const grid = document.getElementById('detail-grid');
   grid.innerHTML = '';
   const aqi = aqiStatus(data.airQuality), uv = uvStatus(data.uvIndex);
-  const precip = (!isHybrid && !isFahrenheit) ? (data.precipitation*2.54).toFixed(2) + ' cm' : data.precipitation.toFixed(2) + ' in';
-  const vis    = (!isHybrid && !isFahrenheit) ? (data.visibility/1000).toFixed(1) + ' km' : (data.visibility/1609.34).toFixed(1) + ' mi';
+  const precip = displayPrecip(data.precipitation);
+  const vis    = displayVis(data.visibility);
   grid.appendChild(makeCircleCard('AIR QUALITY', data.airQuality, aqi.label, aqi.color, aqi.text));
   grid.appendChild(makeCircleCard('UV INDEX',    data.uvIndex,    uv.label,  uv.color,  uv.text));
   grid.appendChild(makeTextCard('PRECIPITATION', precip + '\n(24h)'));
   grid.appendChild(makeTextCard('VISIBILITY', vis));
   grid.appendChild(makeFeelsLikeCard(data.feelsLike, data.currentTemp, data.windSpeed, data.humidity));
   grid.appendChild(makeTextCard('HUMIDITY', data.humidity + '%'));
-  grid.appendChild(makeTextCard('WIND', data.windDir + ' ' + ((!isHybrid && !isFahrenheit) ? Math.round(data.windSpeed*1.609) + ' km/h' : data.windSpeed + ' mph')));
+  grid.appendChild(makeTextCard('WIND', data.windDir + ' ' + displayWind(data.windSpeed)));
   grid.appendChild(makeTempCircleCard('DEW POINT', data.dewPoint));
+  if (unitMode === 'advanced' && data.pressure != null) {
+    grid.appendChild(makeTextCard('PRESSURE', displayPressure(data.pressure)));
+  }
 }
 function makeCircleCard(title, value, label, circleColor, circleText) {
   const card = document.createElement('div');
@@ -1594,7 +1746,9 @@ function syncEditModeUI() {
 }
 
 document.getElementById('menuRefresh').addEventListener('click', function() {
-  dropdownMenu.classList.remove('open'); globalCache = {}; renderCitiesScreen();
+  dropdownMenu.classList.remove('open');
+  Object.keys(globalCache).forEach(function(k) { globalCache[k].fetchedAt = 0; });
+  renderCitiesScreen();
 });
 // Add City removed — search bar handles adding cities
 document.getElementById('menuEditCities').addEventListener('click', function() {
@@ -1624,23 +1778,101 @@ document.getElementById('menuDefault').addEventListener('click', function() { dr
 document.getElementById('menuImperial').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('imperial'); });
 document.getElementById('menuMetric').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('metric'); });
 document.getElementById('menuHybrid').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('hybrid'); });
+document.getElementById('menuAdvanced').addEventListener('click', function() { dropdownMenu.classList.remove('open'); openAdvancedPanel(); });
 
 function applyUnit(mode) {
   unitMode = mode;
+  storageSet(UNIT_KEY, mode);
   if (mode === 'default') {
     autoDetectUnit();
+  } else if (mode === 'advanced') {
+    // keep isFahrenheit/isHybrid in sync with advancedUnits.temp for tempColor logic
+    isFahrenheit = (advancedUnits.temp === 'F');
+    isHybrid = false;
   } else {
     isHybrid = (mode === 'hybrid');
-    isFahrenheit = (mode !== 'metric');
+    isFahrenheit = (mode === 'imperial');
   }
   updateChecks();
-  globalCache = {};
-  renderCitiesScreen();
+  // Unit change — always force a fresh API fetch so data is current, not just re-converted.
+  Object.keys(globalCache).forEach(function(k) { globalCache[k].fetchedAt = 0; });
+  var detailActive = document.getElementById('detail-screen').classList.contains('active');
+  if (detailActive && currentCity) {
+    // Re-fetch and re-render the open detail view immediately, refresh city cards behind it
+    getWeatherForCity(currentCity).then(function(data) {
+      renderDetail(currentCity, data);
+    }).catch(function() {});
+    renderCitiesScreen();
+  } else {
+    renderCitiesScreen();
+  }
 }
 function updateChecks() {
-  ['menuDefault','menuImperial','menuMetric','menuHybrid'].forEach(function(id) { document.getElementById(id).classList.remove('checked'); });
-  const map = {default:'menuDefault', imperial:'menuImperial', metric:'menuMetric', hybrid:'menuHybrid'};
-  document.getElementById(map[unitMode]).classList.add('checked');
+  ['menuDefault','menuImperial','menuMetric','menuHybrid','menuAdvanced'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.classList.remove('checked');
+  });
+  const map = {default:'menuDefault', imperial:'menuImperial', metric:'menuMetric', hybrid:'menuHybrid', advanced:'menuAdvanced'};
+  var el = document.getElementById(map[unitMode]); if (el) el.classList.add('checked');
+}
+
+// ─── ADVANCED UNITS PANEL ─────────────────────────────────────────────────────
+var advPanelListenersAttached = false;
+
+function openAdvancedPanel() {
+  // Load saved advanced units from storage
+  try {
+    var saved = JSON.parse(storageGet(ADVANCED_KEY) || 'null');
+    if (saved) advancedUnits = Object.assign(advancedUnits, saved);
+  } catch(e) {}
+  syncAdvancedUI();
+  document.getElementById('advanced-panel').classList.add('open');
+  document.getElementById('advanced-backdrop').classList.add('open');
+
+  // Attach listeners here — panel HTML is guaranteed to exist at this point
+  if (!advPanelListenersAttached) {
+    advPanelListenersAttached = true;
+
+    // Segment button clicks — single select per group
+    document.querySelectorAll('.adv-seg').forEach(function(seg) {
+      seg.addEventListener('click', function(e) {
+        var btn = e.target.closest('.adv-seg-btn');
+        if (!btn) return;
+        seg.querySelectorAll('.adv-seg-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var keyMap = { segTemp:'temp', segWind:'wind', segPrecip:'precip', segVis:'vis', segPressure:'pressure' };
+        advancedUnits[keyMap[seg.id]] = btn.dataset.val;
+      });
+    });
+
+    document.getElementById('advClose').addEventListener('click', closeAdvancedPanel);
+    document.getElementById('advanced-backdrop').addEventListener('click', closeAdvancedPanel);
+    document.getElementById('advApply').addEventListener('click', function() {
+      storageSet(ADVANCED_KEY, JSON.stringify(advancedUnits));
+      closeAdvancedPanel();
+      applyUnit('advanced');
+    });
+  }
+}
+
+function closeAdvancedPanel() {
+  document.getElementById('advanced-panel').classList.remove('open');
+  document.getElementById('advanced-backdrop').classList.remove('open');
+}
+
+function syncAdvancedUI() {
+  [
+    { seg: 'segTemp',     key: 'temp' },
+    { seg: 'segWind',     key: 'wind' },
+    { seg: 'segPrecip',   key: 'precip' },
+    { seg: 'segVis',      key: 'vis' },
+    { seg: 'segPressure', key: 'pressure' },
+  ].forEach(function(row) {
+    var seg = document.getElementById(row.seg);
+    if (!seg) return;
+    seg.querySelectorAll('.adv-seg-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.val === advancedUnits[row.key]);
+    });
+  });
 }
 
 // =========================================================
@@ -1653,6 +1885,10 @@ document.getElementById('back-btn').addEventListener('click', function() {
   stopLiveAnim();
   currentCity = null;
   showScreen('cities-screen');
+  // Restore cities scroll position
+  requestAnimationFrame(function() {
+    document.getElementById('cities-screen').scrollTop = citiesScrollY;
+  });
 });
 
 // =========================================================
@@ -1669,22 +1905,7 @@ let mapPrevScreen = 'cities-screen';
 // OpenWeatherMap free API key — sign up at openweathermap.org for your own
 const OWM_KEY = '4b9e4b4e81cc1f2a8d5d3f7b2e9c1a0d';
 
-function aqiColor(aqi) {
-  if (aqi <= 50)  return '#00e400';
-  if (aqi <= 100) return '#ffff00';
-  if (aqi <= 150) return '#ff7e00';
-  if (aqi <= 200) return '#ff0000';
-  if (aqi <= 300) return '#8f3f97';
-  return '#7e0023';
-}
-function aqiLabel(aqi) {
-  if (aqi <= 50)  return 'Good';
-  if (aqi <= 100) return 'Moderate';
-  if (aqi <= 150) return 'Unhealthy for Sensitive';
-  if (aqi <= 200) return 'Unhealthy';
-  if (aqi <= 300) return 'Very Unhealthy';
-  return 'Hazardous';
-}
+// (aqiColor and aqiLabel defined earlier — see top of map section)
 
 function buildTempLegend() {
   var unit = (isFahrenheit && !isHybrid) ? '°F' : '°C';
@@ -1861,6 +2082,10 @@ function initMap() {
   mapInstance = L.map('map-container', {
     center: [20, 0],
     zoom: 2,
+    minZoom: 2,
+    maxZoom: 12,
+    maxBounds: [[-85, -200], [85, 200]],
+    maxBoundsViscosity: 1.0,
     zoomControl: true,
     attributionControl: true
   });
@@ -1871,23 +2096,6 @@ function initMap() {
   }).addTo(mapInstance);
 }
 
-
-function aqiColor(aqi) {
-  if (aqi <= 50)  return '#00e400';
-  if (aqi <= 100) return '#ffff00';
-  if (aqi <= 150) return '#ff7e00';
-  if (aqi <= 200) return '#ff0000';
-  if (aqi <= 300) return '#8f3f97';
-  return '#7e0023';
-}
-function aqiLabel(aqi) {
-  if (aqi <= 50)  return 'Good';
-  if (aqi <= 100) return 'Moderate';
-  if (aqi <= 150) return 'Unhealthy for Sensitive';
-  if (aqi <= 200) return 'Unhealthy';
-  if (aqi <= 300) return 'Very Unhealthy';
-  return 'Hazardous';
-}
 
 function hexToRgbMap(hex) {
   var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
@@ -1932,23 +2140,22 @@ loadCities();
 updateChecks();
 startLiveClock();
 
-// Restore last-known weather cache so cards show instantly on open
+// Restore last-known weather cache so coords/metadata are available,
+// but always fetch fresh data on startup — zero fetchedAt so spinner shows.
 try {
   const wc = JSON.parse(storageGet(CACHE_KEY) || '{}');
   savedCities.forEach(function(city) {
-    if (wc[city]) globalCache[city] = wc[city];
+    if (wc[city]) {
+      globalCache[city] = wc[city];
+      globalCache[city].fetchedAt = 0; // force fresh fetch on every startup
+    }
   });
 } catch(e) {}
 
-// Render immediately — cached cities show instantly, uncached show spinners then load
+// Render — cached cities show instantly, expired ones refetch via TTL
 renderCitiesScreen();
 
-// On startup: immediately fetch fresh data, bypassing any stale cache
-globalCache = {};
-renderCitiesScreen();
-
-// Every 5 minutes — refresh weather data, keep city list intact
+// Every 5 minutes — TTL handles per-city staleness
 setInterval(function() {
-  globalCache = {};
   renderCitiesScreen();
 }, 5 * 60 * 1000);

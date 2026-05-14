@@ -835,3 +835,119 @@ body {
   padding: 1px 5px;
   border-radius: 4px;
 }
+/* ===== ADVANCED UNITS PANEL ===== */
+#advanced-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 950;
+}
+#advanced-backdrop.open { display: block; }
+
+#advanced-panel {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  max-width: 100vw;
+  background: #1c1c1e;
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  z-index: 951;
+  padding: 0 0 32px;
+  font-family: var(--font);
+  transition: transform 0.3s ease;
+}
+#advanced-panel.open { display: block; }
+
+.adv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.adv-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+}
+.adv-close {
+  background: rgba(255,255,255,0.12);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.adv-close:hover { background: rgba(255,255,255,0.22); }
+
+.adv-body { padding: 8px 20px; }
+
+.adv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.adv-row:last-child { border-bottom: none; }
+
+.adv-label {
+  font-size: 15px;
+  color: rgba(255,255,255,0.85);
+  font-weight: 500;
+  min-width: 110px;
+}
+
+.adv-seg {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 3px;
+}
+.adv-seg-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.55);
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 500;
+  padding: 5px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.adv-seg-btn:hover { color: rgba(255,255,255,0.85); }
+.adv-seg-btn.active {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+}
+
+.adv-apply {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 16px 20px 0;
+  padding: 14px;
+  background: #0a84ff;
+  border: none;
+  border-radius: 13px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.adv-apply:hover { opacity: 0.88; }

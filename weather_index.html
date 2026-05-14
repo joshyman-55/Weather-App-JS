@@ -28,6 +28,7 @@
         <div class="dropdown-item dropdown-check" id="menuImperial">Imperial (&deg;F)</div>
         <div class="dropdown-item dropdown-check" id="menuMetric">Metric (&deg;C)</div>
         <div class="dropdown-item dropdown-check" id="menuHybrid">Hybrid (&deg;C + mph)</div>
+        <div class="dropdown-item" id="menuAdvanced">&#9881; Advanced Units</div>
       </div>
       </div>
     </div>
@@ -94,6 +95,58 @@
     <button id="delete-confirm-no">Cancel</button>
     <button id="delete-confirm-yes">Remove</button>
   </div>
+</div>
+<!-- Advanced Units Panel -->
+<div id="advanced-backdrop"></div>
+<div id="advanced-panel">
+  <div class="adv-header">
+    <span class="adv-title">Advanced Units</span>
+    <button class="adv-close" id="advClose">&times;</button>
+  </div>
+  <div class="adv-body">
+    <div class="adv-row">
+      <span class="adv-label">Temperature</span>
+      <div class="adv-seg" id="segTemp">
+        <button class="adv-seg-btn active" data-val="F">&deg;F</button>
+        <button class="adv-seg-btn" data-val="C">&deg;C</button>
+      </div>
+    </div>
+    <div class="adv-row">
+      <span class="adv-label">Wind Speed</span>
+      <div class="adv-seg" id="segWind">
+        <button class="adv-seg-btn active" data-val="mph">mph</button>
+        <button class="adv-seg-btn" data-val="kmh">km/h</button>
+        <button class="adv-seg-btn" data-val="ms">m/s</button>
+        <button class="adv-seg-btn" data-val="kn">kn</button>
+      </div>
+    </div>
+    <div class="adv-row">
+      <span class="adv-label">Precipitation</span>
+      <div class="adv-seg" id="segPrecip">
+        <button class="adv-seg-btn active" data-val="in">in</button>
+        <button class="adv-seg-btn" data-val="mm">mm</button>
+        <button class="adv-seg-btn" data-val="cm">cm</button>
+      </div>
+    </div>
+    <div class="adv-row">
+      <span class="adv-label">Visibility</span>
+      <div class="adv-seg" id="segVis">
+        <button class="adv-seg-btn active" data-val="mi">mi</button>
+        <button class="adv-seg-btn" data-val="km">km</button>
+        <button class="adv-seg-btn" data-val="m">m</button>
+      </div>
+    </div>
+    <div class="adv-row">
+      <span class="adv-label">Pressure</span>
+      <div class="adv-seg" id="segPressure">
+        <button class="adv-seg-btn active" data-val="hpa">hPa</button>
+        <button class="adv-seg-btn" data-val="inhg">inHg</button>
+        <button class="adv-seg-btn" data-val="mb">mb</button>
+        <button class="adv-seg-btn" data-val="mmhg">mmHg</button>
+      </div>
+    </div>
+  </div>
+  <button class="adv-apply" id="advApply">Apply</button>
 </div>
 </body>
 </html>
