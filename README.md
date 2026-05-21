@@ -52,14 +52,12 @@ Card background colors are driven by the current temperature in °F:
 
 | Band | Range | Color |
 |---|---|---|
-| Bitter | ≤ −58°F | Dark Purple |
-| Frigid | −57°F to 32°F | Violet |
+| Frigid | ≤ 32°F | Violet |
 | Cold | 33°F to 49°F | Blue |
 | Chilly | 50°F to 59°F | Lime Green |
 | Ideal | 60°F to 77°F | Yellow |
 | Warm | 78°F to 94°F | Orange |
-| Hot | 95°F to 121°F | Red |
-| Scorched | ≥ 122°F | Maroon |
+| Hot | ≥ 95°F | Red |
 
 ---
 
