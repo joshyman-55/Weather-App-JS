@@ -435,56 +435,60 @@ async function getWeatherForCity(cityName) {
 // =========================================================
 // CURRENT LOCATION
 // =========================================================
-async function addCurrentLocation() {
+// Shared helper — silently updates location if already saved, or adds it fresh
+async function _doLocationUpdate(silent) {
   if (!navigator.geolocation) {
-    alert('Geolocation is not supported by your browser.');
+    if (!silent) alert('Geolocation is not supported by your browser.');
     return;
   }
-  navigator.geolocation.getCurrentPosition(
-    async function(pos) {
-      try {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        const r = await fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=json');
-        const d = await r.json();
-        const city = d.address.city || d.address.town || d.address.village || d.address.county || 'My Location';
-        const countryCode = (d.address.country_code || '').toUpperCase();
-
-        // Auto-set unit based on country when in default mode
-        if (unitMode === 'default') {
-          isFahrenheit = FAHRENHEIT_COUNTRIES.has(countryCode);
-          updateChecks();
-        }
-
-        // Remove old current location city if name changed
-        const prevCity = storageGet(LOC_KEY);
-        if (prevCity && prevCity !== city) {
-          savedCities = savedCities.filter(function(c) { return c !== prevCity; });
-          delete globalCache[prevCity];
-        }
-        storageSet(LOC_KEY, city);
-
-        // Fetch weather directly from coords
-        const [wx, aqi] = await Promise.all([fetchWeatherData(lat, lon), fetchAQI(lat, lon)]);
-        const locData = await buildWeatherData(wx, aqi);
-        locData.lat = lat;
-        locData.lon = lon;
-        globalCache[city] = locData;
-
-        // Insert at top if not already present
-        if (!savedCities.includes(city)) {
-          savedCities.unshift(city);
+  return new Promise(function(resolve) {
+    navigator.geolocation.getCurrentPosition(
+      async function(pos) {
+        try {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const r = await fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=json');
+          const d = await r.json();
+          const city = d.address.city || d.address.town || d.address.village || d.address.county || 'My Location';
+          const countryCode = (d.address.country_code || '').toUpperCase();
+          if (unitMode === 'default') { isFahrenheit = FAHRENHEIT_COUNTRIES.has(countryCode); updateChecks(); }
+          const prevCity = storageGet(LOC_KEY);
+          if (prevCity && prevCity !== city) {
+            savedCities = savedCities.filter(function(c) { return c !== prevCity; });
+            delete globalCache[prevCity];
+          }
+          storageSet(LOC_KEY, city);
+          const [wx, aqi] = await Promise.all([fetchWeatherData(lat, lon), fetchAQI(lat, lon)]);
+          const locData = await buildWeatherData(wx, aqi);
+          locData.lat = lat; locData.lon = lon;
+          globalCache[city] = locData;
+          var locDupe = savedCities.find(function(c) {
+            if (c.toLowerCase() !== city.toLowerCase()) return false;
+            var existing = cityCoords[c];
+            if (!existing) return true;
+            return Math.abs(existing.lat - lat) < 0.1 && Math.abs(existing.lon - lon) < 0.1;
+          });
+          if (locDupe) {
+            savedCities = savedCities.filter(function(c) { return c !== locDupe; });
+            savedCities.unshift(locDupe);
+            globalCache[locDupe] = locData;
+            storageSet(LOC_KEY, locDupe);
+          } else {
+            if (!savedCities.includes(city)) savedCities.unshift(city);
+          }
           saveCities();
-        }
-        renderCitiesScreen();
-      } catch (e) {
-        alert('Could not get weather for your location. Please try again.');
-      }
-    },
-    function() {
-      alert('Location access was denied. Please allow location access and try again.');
-    }
-  );
+          renderCitiesScreen();
+        } catch(e) { if (!silent) alert('Could not get weather for your location. Please try again.'); }
+        resolve();
+      },
+      function() { if (!silent) alert('Location access was denied. Please allow location access and try again.'); resolve(); },
+      { timeout: 10000 }
+    );
+  });
+}
+
+async function addCurrentLocation() {
+  await _doLocationUpdate(false);
 }
 
 // =========================================================
@@ -668,7 +672,7 @@ function nonLocCityCount() {
   return savedCities.filter(function(c) { return c !== locCity; }).length;
 }
 function addCity(name, lat, lon) {
-  if (!savedCities.includes(name)) {
+  if (!savedCities.some(function(c) { return c.toLowerCase() === name.toLowerCase(); })) {
     if (nonLocCityCount() >= CITY_LIMIT) return false;
     savedCities.push(name); saveCities();
   }
@@ -927,11 +931,28 @@ document.getElementById('city-search').addEventListener('input', function() {
           const r = results[idx];
           if (r) {
             var displayName = r.name.replace(/\s*\(.*?\)\s*/g, '').trim();
-            if (savedCities.includes(displayName)) {
+            // Check if exact same city (same name + same coords within ~0.1 deg)
+            // Skip the location service city — it's a separate pinned entry
+            var _locCity = storageGet(LOC_KEY);
+            var exactDupe = savedCities.some(function(c) {
+              if (c === _locCity) return false; // never block manual add just because loc city has same name
+              if (c.toLowerCase() !== displayName.toLowerCase()) return false;
+              var existing = cityCoords[c];
+              if (!existing) return true; // name match, no coords stored — treat as dupe
+              return Math.abs(existing.lat - r.latitude) < 0.1 && Math.abs(existing.lon - r.longitude) < 0.1;
+            });
+            if (exactDupe) {
+              var el2 = document.getElementById('search-results');
+              el2.innerHTML = '<div class="search-result-item" style="color:#f87171;font-weight:500;">"' + displayName + '" is already in your cities.</div>';
+              el2.classList.add('visible');
+              return;
+            }
+            // Same name but different location — disambiguate with region
+            if (savedCities.some(function(c) { return c.toLowerCase() === displayName.toLowerCase(); })) {
               var sub = [r.admin1, r.country].filter(Boolean).join(', ');
               displayName = displayName + (sub ? ', ' + sub : '');
             }
-            if (!savedCities.includes(displayName) && nonLocCityCount() >= CITY_LIMIT) {
+            if (nonLocCityCount() >= CITY_LIMIT) {
               var el2 = document.getElementById('search-results');
               el2.innerHTML = '<div class="search-result-item" style="color:#f87171;font-weight:500;">City limit reached (50 max). Remove a city to add a new one.</div>';
               el2.classList.add('visible');
@@ -2154,6 +2175,21 @@ try {
 
 // Render — cached cities show instantly, expired ones refetch via TTL
 renderCitiesScreen();
+
+// On startup: silently refresh weather for saved location city using stored coords (no geolocation re-run)
+(async function autoRefreshLocWeather() {
+  var locCity = storageGet(LOC_KEY);
+  if (!locCity) return;
+  var coords = cityCoords[locCity];
+  if (!coords) return; // no coords stored, nothing to refresh
+  try {
+    const [wx, aqi] = await Promise.all([fetchWeatherData(coords.lat, coords.lon), fetchAQI(coords.lat, coords.lon)]);
+    const locData = await buildWeatherData(wx, aqi);
+    locData.lat = coords.lat; locData.lon = coords.lon;
+    globalCache[locCity] = locData;
+    renderCitiesScreen();
+  } catch(e) {}
+})();
 
 // Every 5 minutes — TTL handles per-city staleness
 setInterval(function() {
