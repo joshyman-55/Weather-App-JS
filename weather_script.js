@@ -66,8 +66,10 @@ const GRAD_BOUNDS = [
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
 function toDisplay(f) {
-  if (unitMode === 'advanced') return advancedUnits.temp === 'F' ? Math.round(f) : Math.round((f-32)*5/9);
-  return (isFahrenheit && !isHybrid) ? Math.round(f) : Math.round((f-32)*5/9);
+  var val;
+  if (unitMode === 'advanced') val = advancedUnits.temp === 'F' ? Math.round(f) : Math.round((f-32)*5/9);
+  else val = (isFahrenheit && !isHybrid) ? Math.round(f) : Math.round((f-32)*5/9);
+  return val < 0 ? '\u2212' + Math.abs(val) : val;
 }
 function toDisplayStr(f)  { return toDisplay(f) + '\u00b0'; }
 
