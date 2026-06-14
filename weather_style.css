@@ -31,7 +31,8 @@ body {
 .screen.active { visibility: visible; pointer-events: auto; z-index: 1; }
 
 /* ===== CITIES SCREEN ===== */
-#cities-screen { background: #000; overflow-y: auto; height: 100vh; }
+#cities-screen { background: #000; overflow-y: auto; height: 100vh; cursor: grab; user-select: none; scrollbar-width: none; }
+#cities-screen::-webkit-scrollbar { display: none; }
 
 .cities-top-bar {
   position: sticky;
@@ -211,6 +212,24 @@ body {
 }
 .city-card.show-delete .delete-btn { right: 14px; }
 
+.city-card .drag-handle {
+  position: absolute;
+  left: -50px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255,255,255,0.7);
+  font-size: 20px;
+  width: 36px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  transition: left 0.25s ease;
+  user-select: none;
+}
+.city-card.show-delete .drag-handle { left: 12px; }
+
 /* Temperature card colors — 6-color rainbow */
 .card-frigid   { background: #8601af; } /* Violet (RYB) */
 .card-cold     { background: #0000ff; }
@@ -265,7 +284,11 @@ body {
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
+  cursor: grab;
+  user-select: none;
+  scrollbar-width: none;
 }
+#detail-screen::-webkit-scrollbar { display: none; }
 
 .detail-bg {
   position: fixed;
@@ -363,19 +386,9 @@ body {
   overflow-y: hidden;
   margin-bottom: 12px;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.4) transparent;
+  scrollbar-width: none;
 }
-.hourly-scroll-wrap::-webkit-scrollbar {
-  height: 4px;
-}
-.hourly-scroll-wrap::-webkit-scrollbar-track {
-  background: transparent;
-}
-.hourly-scroll-wrap::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.4);
-  border-radius: 2px;
-}
+.hourly-scroll-wrap::-webkit-scrollbar { display: none; }
 
 .hourly-inner {
   display: flex;
@@ -537,7 +550,7 @@ body {
   border-top: 3px solid rgba(255,255,255,0.8);
 }
 /* drag handle removed — cards drag invisibly in edit mode */
-.city-card.show-delete .card-top { padding-left: 0; }
+.city-card.show-delete .card-top { padding-left: 44px; }
 /* ===== DONE EDITING BUTTON ===== */
 #done-editing-btn {
   display: none;
@@ -652,9 +665,7 @@ body {
   position: relative;
   flex-shrink: 0;
   overflow-x: auto;
-  scrollbar-width: none;
 }
-.map-layer-bar::-webkit-scrollbar { display: none; }
 
 .map-layer-btn {
   background: rgba(255,255,255,0.12);

@@ -781,42 +781,6 @@ async function renderCitiesScreen() {
       list.appendChild(card);
 
       const isLocCityDrag = city === storageGet(LOC_KEY);
-      card.draggable = !isLocCityDrag;
-      card.addEventListener('dragstart', function(e) {
-        if (!editMode || isLocCityDrag) { e.preventDefault(); return; }
-        dragSrcCity = city;
-        e.dataTransfer.effectAllowed = 'move';
-        setTimeout(function() { card.classList.add('dragging'); }, 0);
-      });
-      card.addEventListener('dragend', function() {
-        card.classList.remove('dragging');
-        document.querySelectorAll('.city-card').forEach(function(c) { c.classList.remove('drag-over'); });
-      });
-      card.addEventListener('dragover', function(e) {
-        if (!editMode) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        document.querySelectorAll('.city-card').forEach(function(c) { c.classList.remove('drag-over'); });
-        const locCity = storageGet(LOC_KEY);
-        if (city !== dragSrcCity && city !== locCity) card.classList.add('drag-over');
-      });
-      card.addEventListener('drop', function(e) {
-        if (!editMode) return;
-        e.preventDefault();
-        const locCity = storageGet(LOC_KEY);
-        if (dragSrcCity && dragSrcCity !== city && city !== locCity) {
-          const srcIdx = savedCities.indexOf(dragSrcCity);
-          const dstIdx = savedCities.indexOf(city);
-          const locIdx = savedCities.indexOf(locCity);
-          if (srcIdx !== -1 && dstIdx !== -1 && !(locIdx === 0 && dstIdx === 0)) {
-            savedCities.splice(srcIdx, 1);
-            savedCities.splice(dstIdx, 0, dragSrcCity);
-            saveCities();
-            renderCitiesScreen();
-          }
-        }
-        dragSrcCity = null;
-      });
 
       function renderCard(data) {
         const cat = tempCategory(data.currentTemp);
@@ -827,7 +791,6 @@ async function renderCitiesScreen() {
         card.style.background = '';
         card.className = 'city-card card-' + cat + (editMode ? ' show-delete' : '');
         card.dataset.city = city;
-        card.draggable = true;
         card.innerHTML =
           '<div class="card-top">' +
             '<div>' +
@@ -840,10 +803,11 @@ async function renderCitiesScreen() {
               '<div class="city-hilo">H:' + hi + '&deg; L:' + lo + '&deg;</div>' +
             '</div>' +
           '</div>' +
-          (isLocCity ? '' : '<button class="delete-btn">&times;</button>');
+          (isLocCity ? '' : '<button class="delete-btn">&times;</button>') +
+          (isLocCity ? '' : '<div class="drag-handle">&#9776;</div>');
         const delBtn = card.querySelector('.delete-btn');
         if (delBtn) delBtn.addEventListener('click', function(e) { e.stopPropagation(); showDeleteConfirm(city, card); });
-        card.addEventListener('click', function(e) { if (!e.target.classList.contains('delete-btn')) showDetail(city); });
+        card.addEventListener('click', function(e) { if (editMode) return; if (!e.target.classList.contains('delete-btn') && !e.target.classList.contains('drag-handle')) showDetail(city); });
         // Subtle offline indicator when showing fallback data
         if (data.isFallback) {
           var badge = document.createElement('div');
@@ -877,35 +841,213 @@ async function renderCitiesScreen() {
   }
 }
 
-var dragScrollRAF = null;
+// Shared flag used by drag-scroll to suppress scroll during reorder
+var touchDragCard = null;
+
+// =========================================================
+// CITIES + DETAIL SCREEN DRAG-TO-SCROLL
+// =========================================================
 (function() {
-  var screen = document.getElementById('cities-screen');
-  var edgeSize = 60;
-  var maxSpeed = 12;
-  screen.addEventListener('dragover', function(e) {
-    if (!dragSrcCity) return;
-    var rect = screen.getBoundingClientRect();
-    var y = e.clientY - rect.top;
-    var h = rect.height;
-    if (dragScrollRAF) cancelAnimationFrame(dragScrollRAF);
-    if (y < edgeSize) {
-      var speed = maxSpeed * (1 - y / edgeSize);
-      (function scroll() {
-        screen.scrollTop -= speed;
-        dragScrollRAF = requestAnimationFrame(scroll);
-      })();
-    } else if (y > h - edgeSize) {
-      var speed = maxSpeed * (1 - (h - y) / edgeSize);
-      (function scroll() {
-        screen.scrollTop += speed;
-        dragScrollRAF = requestAnimationFrame(scroll);
-      })();
-    } else {
-      dragScrollRAF = null;
+  function addDragScroll(el) {
+    var startY = 0, startScroll = 0, isDragging = false;
+    el.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      if (e.target.closest('.drag-handle')) return;
+      if (e.clientX > el.getBoundingClientRect().right - 15) return;
+      isDragging = true;
+      startY = e.clientY;
+      startScroll = el.scrollTop;
+      el.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      el.scrollTop = startScroll - (e.clientY - startY);
+    });
+    document.addEventListener('mouseup', function() {
+      if (!isDragging) return;
+      isDragging = false;
+      el.style.cursor = '';
+    });
+    el.addEventListener('touchstart', function(e) {
+      if (e.target.closest('.drag-handle')) return;
+      startY = e.touches[0].clientY;
+      startScroll = el.scrollTop;
+    }, { passive: true });
+    el.addEventListener('touchmove', function(e) {
+      if (e.target.closest('.drag-handle')) return;
+      if (touchDragCard) return;
+      el.scrollTop = startScroll - (e.touches[0].clientY - startY);
+    }, { passive: true });
+  }
+  addDragScroll(document.getElementById('cities-screen'));
+  addDragScroll(document.getElementById('detail-screen'));
+
+  // Horizontal drag-to-scroll for hourly strip
+  (function() {
+    var el, startX, startScroll, isDragging;
+    document.addEventListener('mousedown', function(e) {
+      var strip = e.target.closest('.hourly-scroll-wrap');
+      if (!strip) return;
+      if (e.button !== 0) return;
+      el = strip; isDragging = true;
+      startX = e.clientX; startScroll = el.scrollLeft;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging || !el) return;
+      el.scrollLeft = startScroll - (e.clientX - startX);
+    });
+    document.addEventListener('mouseup', function() { isDragging = false; el = null; });
+  })();
+})();
+
+// =========================================================
+// UNIFIED POINTER DRAG REORDER (mouse + touch)
+// =========================================================
+(function() {
+  var dragCity = null, dragCard = null, ghostEl = null;
+  var startClientY = 0, ghostStartTop = 0;
+  var edgeSize = 80, scrollRAF = null;
+  var dragSrcIdx = -1, currentDropIdx = -1;
+
+  function getScreen() { return document.getElementById('cities-screen'); }
+  function getAllCards() { return Array.from(document.querySelectorAll('#city-cards-list .city-card')); }
+
+  function applyShifts(dropIdx) {
+    var cards = getAllCards();
+    var cardH = dragCard.offsetHeight + 12;
+    cards.forEach(function(c, i) {
+      c.style.transition = 'transform 0.18s ease';
+      if (c === dragCard) { c.style.transform = ''; return; }
+      var shift = 0;
+      if (dropIdx > dragSrcIdx) {
+        if (i > dragSrcIdx && i <= dropIdx) shift = -cardH;
+      } else if (dropIdx < dragSrcIdx) {
+        if (i >= dropIdx && i < dragSrcIdx) shift = cardH;
+      }
+      c.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+    });
+  }
+
+  function clearShifts() {
+    getAllCards().forEach(function(c) { c.style.transform = ''; c.style.transition = ''; });
+  }
+
+  function startDrag(card, clientY) {
+    var cards = getAllCards();
+    dragSrcIdx = cards.indexOf(card);
+    currentDropIdx = dragSrcIdx;
+    dragCity = card.dataset.city;
+    dragCard = card;
+    startClientY = clientY;
+    touchDragCard = card;
+    var rect = card.getBoundingClientRect();
+    ghostStartTop = rect.top;
+    ghostEl = card.cloneNode(true);
+    ghostEl.style.cssText =
+      'position:fixed;left:' + rect.left + 'px;top:' + rect.top + 'px;' +
+      'width:' + rect.width + 'px;opacity:0.75;pointer-events:none;' +
+      'z-index:9999;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    document.body.appendChild(ghostEl);
+    card.style.opacity = '0';
+  }
+
+  function moveDrag(clientX, clientY) {
+    if (!dragCard || !ghostEl) return;
+    ghostEl.style.top = (ghostStartTop + (clientY - startClientY)) + 'px';
+
+    // Auto-scroll near edges
+    var screen = getScreen();
+    var sRect = screen.getBoundingClientRect();
+    var relY = clientY - sRect.top;
+    if (scrollRAF) { cancelAnimationFrame(scrollRAF); scrollRAF = null; }
+    if (relY < edgeSize) {
+      var spd = Math.round(12 * (1 - relY / edgeSize));
+      (function loop() { screen.scrollTop -= spd; scrollRAF = requestAnimationFrame(loop); })();
+    } else if (relY > sRect.height - edgeSize) {
+      var spd = Math.round(12 * (1 - (sRect.height - relY) / edgeSize));
+      (function loop() { screen.scrollTop += spd; scrollRAF = requestAnimationFrame(loop); })();
     }
+
+    // Find drop index: which card slot is ghost centre closest to
+    var cards = getAllCards();
+    var locCity = storageGet(LOC_KEY);
+    var ghostMid = parseFloat(ghostEl.style.top) + dragCard.offsetHeight / 2;
+    // ghostEl.style.top is fixed, convert to scroll-relative
+    var scrollRelGhostMid = ghostMid - sRect.top + screen.scrollTop;
+
+    var newDropIdx = dragSrcIdx;
+    var bestDist = Infinity;
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].dataset.city === locCity) continue;
+      // natural offsetTop (unaffected by transform since we're using offsetTop on parent)
+      var cardMid = cards[i].offsetTop + cards[i].offsetHeight / 2;
+      var dist = Math.abs(scrollRelGhostMid - cardMid);
+      if (dist < bestDist) { bestDist = dist; newDropIdx = i; }
+    }
+
+    if (newDropIdx !== currentDropIdx) {
+      currentDropIdx = newDropIdx;
+      applyShifts(currentDropIdx);
+    }
+  }
+
+  function endDrag(clientX, clientY) {
+    if (!dragCard) return;
+    if (scrollRAF) { cancelAnimationFrame(scrollRAF); scrollRAF = null; }
+    clearShifts();
+    if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+    dragCard.style.opacity = '';
+    touchDragCard = null;
+
+    if (currentDropIdx !== dragSrcIdx) {
+      // currentDropIdx is a DOM card index; map to savedCities index via city name
+      var cards = getAllCards();
+      var targetCity = cards[currentDropIdx] && cards[currentDropIdx].dataset.city;
+      var src = savedCities.indexOf(dragCity);
+      var dst = targetCity ? savedCities.indexOf(targetCity) : -1;
+      if (src !== -1 && dst !== -1) {
+        savedCities.splice(src, 1);
+        if (dst > src) dst--;
+        savedCities.splice(dst, 0, dragCity);
+        saveCities();
+        renderCitiesScreen();
+      }
+    }
+    dragCity = null; dragCard = null; dragSrcIdx = -1; currentDropIdx = -1;
+  }
+
+  // Mouse
+  document.addEventListener('mousedown', function(e) {
+    if (!editMode) return;
+    if (!e.target.closest('.drag-handle')) return;
+    var card = e.target.closest('.city-card');
+    if (!card) return;
+    if (card.dataset.city === storageGet(LOC_KEY)) return;
+    e.preventDefault();
+    startDrag(card, e.clientY);
   });
-  document.addEventListener('dragend', function() {
-    if (dragScrollRAF) { cancelAnimationFrame(dragScrollRAF); dragScrollRAF = null; }
+  document.addEventListener('mousemove', function(e) { if (dragCard) moveDrag(e.clientX, e.clientY); });
+  document.addEventListener('mouseup',   function(e) { if (dragCard) endDrag(e.clientX, e.clientY); });
+
+  // Touch
+  document.addEventListener('touchstart', function(e) {
+    if (!editMode) return;
+    if (!e.target.closest('.drag-handle')) return;
+    var card = e.target.closest('.city-card');
+    if (!card) return;
+    if (card.dataset.city === storageGet(LOC_KEY)) return;
+    e.preventDefault();
+    startDrag(card, e.touches[0].clientY);
+  }, { passive: false });
+  document.addEventListener('touchmove', function(e) {
+    if (!dragCard) return;
+    e.preventDefault();
+    moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: false });
+  document.addEventListener('touchend', function(e) {
+    if (dragCard) endDrag(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
   });
 })();
 
@@ -972,10 +1114,15 @@ document.getElementById('city-search').addEventListener('input', function() {
   }, 400);
 });
 document.getElementById('city-search').addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') { this.value = ''; hideSearch(); }
+  if (e.key === 'Escape') { this.value = ''; hideSearch(true); }
 });
-function hideSearch() {
+function hideSearch(force) {
   const el = document.getElementById('search-results');
+  // Don't immediately clear if showing an error message — let user read it
+  if (!force && el.querySelector('[style*="f87171"]')) {
+    setTimeout(function() { el.classList.remove('visible'); el.innerHTML = ''; }, 2500);
+    return;
+  }
   el.classList.remove('visible');
   el.innerHTML = '';
 }
