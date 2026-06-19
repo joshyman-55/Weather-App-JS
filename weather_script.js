@@ -849,12 +849,14 @@ var touchDragCard = null;
 // =========================================================
 (function() {
   function addDragScroll(el) {
-    var startY = 0, startScroll = 0, isDragging = false;
+    var startY = 0, startScroll = 0, isDragging = false, didDrag = false;
     el.addEventListener('mousedown', function(e) {
       if (e.button !== 0) return;
       if (e.target.closest('.drag-handle')) return;
+      if (e.target.closest('input, button, select, textarea, a')) return;
+      if (e.target.closest('.cities-top-bar, #search-results')) return;
       if (e.clientX > el.getBoundingClientRect().right - 15) return;
-      isDragging = true;
+      isDragging = true; didDrag = false;
       startY = e.clientY;
       startScroll = el.scrollTop;
       el.style.cursor = 'grabbing';
@@ -862,6 +864,7 @@ var touchDragCard = null;
     });
     document.addEventListener('mousemove', function(e) {
       if (!isDragging) return;
+      if (Math.abs(e.clientY - startY) > 5) didDrag = true;
       el.scrollTop = startScroll - (e.clientY - startY);
     });
     document.addEventListener('mouseup', function() {
@@ -869,16 +872,25 @@ var touchDragCard = null;
       isDragging = false;
       el.style.cursor = '';
     });
+    el.addEventListener('click', function(e) {
+      if (didDrag) { e.stopPropagation(); didDrag = false; }
+    }, true);
     el.addEventListener('touchstart', function(e) {
       if (e.target.closest('.drag-handle')) return;
       startY = e.touches[0].clientY;
       startScroll = el.scrollTop;
+      didDrag = false;
     }, { passive: true });
     el.addEventListener('touchmove', function(e) {
       if (e.target.closest('.drag-handle')) return;
       if (touchDragCard) return;
+      if (Math.abs(e.touches[0].clientY - startY) > 5) didDrag = true;
       el.scrollTop = startScroll - (e.touches[0].clientY - startY);
     }, { passive: true });
+    el.addEventListener('touchend', function(e) {
+      if (didDrag) e.preventDefault();
+      setTimeout(function() { didDrag = false; }, 300);
+    }, { passive: false });
   }
   addDragScroll(document.getElementById('cities-screen'));
   addDragScroll(document.getElementById('detail-screen'));
