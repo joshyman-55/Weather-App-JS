@@ -660,12 +660,6 @@ function migrateOneCity(cityName) {
   }).catch(function() {});
 }
 function saveCities() {
-  // Always keep current location pinned at index 0
-  const locCity = storageGet(LOC_KEY);
-  if (locCity && savedCities.includes(locCity) && savedCities[0] !== locCity) {
-    savedCities = savedCities.filter(function(c) { return c !== locCity; });
-    savedCities.unshift(locCity);
-  }
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
 }
 const CITY_LIMIT = 50;
@@ -993,9 +987,13 @@ var touchDragCard = null;
     var bestDist = Infinity;
     for (var i = 0; i < cards.length; i++) {
       if (cards[i].dataset.city === locCity) continue;
-      // natural offsetTop (unaffected by transform since we're using offsetTop on parent)
-      var cardMid = cards[i].offsetTop + cards[i].offsetHeight / 2;
-      var dist = Math.abs(scrollRelGhostMid - cardMid);
+      // Strip any applied translateY so we compare against natural slot positions
+      var cRect = cards[i].getBoundingClientRect();
+      var transformStr = cards[i].style.transform || '';
+      var shiftMatch = transformStr.match(/translateY\((-?[\d.]+)px\)/);
+      var appliedShift = shiftMatch ? parseFloat(shiftMatch[1]) : 0;
+      var naturalMid = (cRect.top - appliedShift - sRect.top + screen.scrollTop) + cards[i].offsetHeight / 2;
+      var dist = Math.abs(scrollRelGhostMid - naturalMid);
       if (dist < bestDist) { bestDist = dist; newDropIdx = i; }
     }
 
@@ -1020,8 +1018,10 @@ var touchDragCard = null;
       var src = savedCities.indexOf(dragCity);
       var dst = targetCity ? savedCities.indexOf(targetCity) : -1;
       if (src !== -1 && dst !== -1) {
+        var movingDown = currentDropIdx > dragSrcIdx;
         savedCities.splice(src, 1);
-        if (dst > src) dst--;
+        dst = savedCities.indexOf(targetCity);
+        if (movingDown) dst += 1; // drop after the target when moving down
         savedCities.splice(dst, 0, dragCity);
         saveCities();
         renderCitiesScreen();
