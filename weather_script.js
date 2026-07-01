@@ -33,35 +33,40 @@ const LOC_KEY = '__current_location__';
 // TEMPERATURE UTILS
 // =========================================================
 function tempCategory(f) {
-  if (f <= 32)  return 'frigid';   // <= 32°F
+  if (f <= -20) return 'bitter';   // <= -20°F
+  if (f <= 32)  return 'frigid';   // -19°F to 32°F
   if (f <= 49)  return 'cold';     // 33°F to 49°F
   if (f <= 59)  return 'chilly';   // 50°F to 59°F
   if (f <= 77)  return 'mild';     // 60°F to 77°F
   if (f <= 95)  return 'warm';     // 78°F to 95°F
   if (f <= 122) return 'hot';      // 96°F to 122°F
-  return 'hot';                    // >= 123°F (no scorched)
+  return 'scorched';               // >= 123°F
 }
 const TEMP_COLORS = {
-  frigid:'#8601af',  // Violet (RYB)  <= 32°F
+  bitter:'#32174d',  // Russian Violet <= -20°F
+  frigid:'#8601af',  // Violet (RYB)  -19°F to 32°F
   cold:  '#0000ff',  // Blue         33°F to 49°F
   chilly:'#00ff00',  // Lime         50°F to 59°F
   mild:  '#ffff00',  // Yellow       60°F to 77°F
   warm:  '#ffa500',  // Orange       78°F to 95°F
-  hot:   '#ff0000',  // Red          >= 96°F
+  hot:   '#ff0000',  // Red          96°F to 122°F
+  scorched:'#800000',// Dark Red     >= 123°F
 };
 const TEMP_TEXT = {
-  frigid:'#ffffff', cold:'#ffffff', chilly:'#000000',
-  mild:'#000000', warm:'#ffffff', hot:'#ffffff'
+  bitter:'#ffffff', frigid:'#ffffff', cold:'#ffffff', chilly:'#000000',
+  mild:'#000000', warm:'#ffffff', hot:'#ffffff', scorched:'#ffffff'
 };
 
 // Zone START temperatures for gradient — each color begins at this °F value
 const GRAD_BOUNDS = [
-  { t: -58, hex: '#8601af' },  // Frigid:   <= 32°F
+  { t: -58, hex: '#32174d' },  // Bitter:   <= -20°F
+  { t: -19, hex: '#8601af' },  // Frigid:   -19°F to 32°F
   { t:  33, hex: '#0000ff' },  // Cold:     33°F to 49°F
   { t:  50, hex: '#00ff00' },  // Chilly:   50°F to 59°F
   { t:  60, hex: '#ffff00' },  // Mild:    60°F to 77°F
   { t:  78, hex: '#ffa500' },  // Warm:     78°F to 95°F
-  { t:  96, hex: '#ff0000' },  // Hot:      >= 96°F
+  { t:  96, hex: '#ff0000' },  // Hot:      96°F to 122°F
+  { t: 123, hex: '#800000' },  // Scorched: >= 123°F
 ];
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
@@ -1361,12 +1366,14 @@ function makeGrad(min, max) {
   if (min >= max) { const c = tempColor(min); return 'linear-gradient(to right,' + c + ',' + c + ')'; }
   // Category boundary temperatures and their exact circle colors
   const BOUNDS = [
-    { t: -58, hex: '#8601af' },
+    { t: -58, hex: '#32174d' },
+    { t: -19, hex: '#8601af' },
     { t:  33, hex: '#0000ff' },
     { t:  50, hex: '#00ff00' },
     { t:  60, hex: '#ffff00' },
     { t:  78, hex: '#ffa500' },
     { t:  96, hex: '#ff0000' },
+    { t: 123, hex: '#800000' },
   ];
   // Collect only the boundary points that fall within [min, max], plus clamped endpoints
   const pts = [];
@@ -1428,11 +1435,11 @@ function makeFeelsLikeCard(feelsLikeF, actualF, windSpeed, humidity) {
   if (diff === 0) {
     reason = 'Similar to actual temperature (exact)';
   } else if (diff < 0) {
-    reason = (cat === 'frigid')
+    reason = (cat === 'bitter' || cat === 'frigid')
       ? 'Wind makes it colder'
       : 'Wind makes it cooler';
   } else {
-    reason = (cat === 'hot')
+    reason = (cat === 'hot' || cat === 'scorched')
       ? 'Feels hotter than actual temperature'
       : 'Feels warmer than actual temperature';
   }
@@ -2094,7 +2101,7 @@ function buildTempLegend() {
   var lo  = (isFahrenheit && !isHybrid) ? '-58°' : '-50°';
   var mid = (isFahrenheit && !isHybrid) ? '32°'  : '0°';
   var hi  = (isFahrenheit && !isHybrid) ? '123°' : '51°';
-  var grad = 'linear-gradient(to right,#8601af 0%,#0000ff 50%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.7%,#ff0000 100%)';
+  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 21.5%,#0000ff 50.3%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.1%,#ff0000 85.1%,#800000 100%)';
   return '<div class="map-legend-title">Temperature (' + unit + ')</div>' +
     '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:' + grad + '"></div></div>' +
     '<div class="map-legend-labels"><span class="map-legend-label">' + lo + '</span><span class="map-legend-label">' + mid + '</span><span class="map-legend-label">' + hi + '</span></div>';

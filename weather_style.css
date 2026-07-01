@@ -230,13 +230,15 @@ body {
 }
 .city-card.show-delete .drag-handle { left: 12px; }
 
-/* Temperature card colors — 6-color rainbow */
+/* Temperature card colors — 8-color scale */
+.card-bitter   { background: #32174d; } /* Russian Violet */
 .card-frigid   { background: #8601af; } /* Violet (RYB) */
 .card-cold     { background: #0000ff; }
 .card-chilly   { background: #00ff00; }
 .card-mild     { background: #ffff00; }
 .card-warm     { background: #ffa500; }
 .card-hot      { background: #ff0000; }
+.card-scorched { background: #800000; } /* Dark Red */
 
 /* Black text on bright backgrounds */
 .card-chilly .city-name,
