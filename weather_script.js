@@ -33,8 +33,8 @@ const LOC_KEY = '__current_location__';
 // TEMPERATURE UTILS
 // =========================================================
 function tempCategory(f) {
-  if (f <= -20) return 'bitter';   // <= -20°F
-  if (f <= 32)  return 'frigid';   // -19°F to 32°F
+  if (f <= -22) return 'bitter';   // <= -22°F
+  if (f <= 32)  return 'frigid';   // -21°F to 32°F
   if (f <= 49)  return 'cold';     // 33°F to 49°F
   if (f <= 59)  return 'chilly';   // 50°F to 59°F
   if (f <= 77)  return 'mild';     // 60°F to 77°F
@@ -43,7 +43,7 @@ function tempCategory(f) {
   return 'scorched';               // >= 123°F
 }
 const TEMP_COLORS = {
-  bitter:'#32174d',  // Russian Violet <= -20°F
+  bitter:'#32174d',  // Russian Violet <= -22°F
   frigid:'#8601af',  // Violet (RYB)  -19°F to 32°F
   cold:  '#0000ff',  // Blue         33°F to 49°F
   chilly:'#00ff00',  // Lime         50°F to 59°F
@@ -59,8 +59,8 @@ const TEMP_TEXT = {
 
 // Zone START temperatures for gradient — each color begins at this °F value
 const GRAD_BOUNDS = [
-  { t: -58, hex: '#32174d' },  // Bitter:   <= -20°F
-  { t: -19, hex: '#8601af' },  // Frigid:   -19°F to 32°F
+  { t: -58, hex: '#32174d' },  // Bitter:   <= -22°F
+  { t: -21, hex: '#8601af' },  // Frigid:   -21°F to 32°F
   { t:  33, hex: '#0000ff' },  // Cold:     33°F to 49°F
   { t:  50, hex: '#00ff00' },  // Chilly:   50°F to 59°F
   { t:  60, hex: '#ffff00' },  // Mild:    60°F to 77°F
