@@ -33,8 +33,8 @@ const LOC_KEY = '__current_location__';
 // TEMPERATURE UTILS
 // =========================================================
 function tempCategory(f) {
-  if (f <= 4)   return 'bitter';   // <= 4°F
-  if (f <= 32)  return 'frigid';   // 5°F to 32°F
+  if (f <= -4)  return 'bitter';   // <= -4°F
+  if (f <= 32)  return 'frigid';   // -3°F to 32°F
   if (f <= 49)  return 'cold';     // 33°F to 49°F
   if (f <= 59)  return 'chilly';   // 50°F to 59°F
   if (f <= 77)  return 'mild';     // 60°F to 77°F
@@ -43,8 +43,8 @@ function tempCategory(f) {
   return 'scorched';               // >= 123°F
 }
 const TEMP_COLORS = {
-  bitter:'#32174d',  // Russian Violet <= 4°F
-  frigid:'#8601af',  // Violet (RYB)  5°F to 32°F
+  bitter:'#32174d',  // Russian Violet <= -4°F
+  frigid:'#8601af',  // Violet (RYB)  -3°F to 32°F
   cold:  '#0000ff',  // Blue         33°F to 49°F
   chilly:'#00ff00',  // Lime         50°F to 59°F
   mild:  '#ffff00',  // Yellow       60°F to 77°F
@@ -59,8 +59,8 @@ const TEMP_TEXT = {
 
 // Zone START temperatures for gradient — each color begins at this °F value
 const GRAD_BOUNDS = [
-  { t: -58, hex: '#32174d' },  // Bitter:   <= 4°F
-  { t:   5, hex: '#8601af' },  // Frigid:   5°F to 32°F
+  { t: -58, hex: '#32174d' },  // Bitter:   <= -4°F
+  { t:  -3, hex: '#8601af' },  // Frigid:   -3°F to 32°F
   { t:  33, hex: '#0000ff' },  // Cold:     33°F to 49°F
   { t:  50, hex: '#00ff00' },  // Chilly:   50°F to 59°F
   { t:  60, hex: '#ffff00' },  // Mild:    60°F to 77°F
@@ -1367,7 +1367,7 @@ function makeGrad(min, max) {
   // Category boundary temperatures and their exact circle colors
   const BOUNDS = [
     { t: -58, hex: '#32174d' },
-    { t:   5, hex: '#8601af' },
+    { t:  -3, hex: '#8601af' },
     { t:  33, hex: '#0000ff' },
     { t:  50, hex: '#00ff00' },
     { t:  60, hex: '#ffff00' },
@@ -2101,7 +2101,7 @@ function buildTempLegend() {
   var lo  = (isFahrenheit && !isHybrid) ? '-58°' : '-50°';
   var mid = (isFahrenheit && !isHybrid) ? '32°'  : '0°';
   var hi  = (isFahrenheit && !isHybrid) ? '123°' : '51°';
-  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 34.8%,#0000ff 50.3%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.1%,#ff0000 85.1%,#800000 100%)';
+  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 21.5%,#0000ff 50.3%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.1%,#ff0000 85.1%,#800000 100%)';
   return '<div class="map-legend-title">Temperature (' + unit + ')</div>' +
     '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:' + grad + '"></div></div>' +
     '<div class="map-legend-labels"><span class="map-legend-label">' + lo + '</span><span class="map-legend-label">' + mid + '</span><span class="map-legend-label">' + hi + '</span></div>';
