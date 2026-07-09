@@ -10,6 +10,7 @@
 </head>
 <body>
 
+<div id="split-wrap">
 <!-- CITIES SCREEN -->
 <div id="cities-screen" class="screen active">
   <div class="cities-top-bar">
@@ -29,6 +30,13 @@
         <div class="dropdown-item dropdown-check" id="menuMetric">Metric (&deg;C)</div>
         <div class="dropdown-item dropdown-check" id="menuHybrid">Hybrid (&deg;C + mph)</div>
         <div class="dropdown-item" id="menuAdvanced">&#9881; Advanced Units</div>
+        <div class="dropdown-divider"></div>
+        <div class="dropdown-item dropdown-check" id="menuDisplayAuto">Display: Auto</div>
+        <div class="dropdown-item dropdown-check" id="menuDisplayPhone">Display: Phone</div>
+        <div class="dropdown-item dropdown-check" id="menuDisplayDesktop">Display: Desktop (Auto-Rotate)</div>
+        <div class="dropdown-item dropdown-check dropdown-sub" id="menuDisplayDesktopPortrait">&nbsp;&nbsp;Desktop — Portrait</div>
+        <div class="dropdown-item dropdown-check dropdown-sub" id="menuDisplayDesktopLandscape">&nbsp;&nbsp;Desktop — Landscape</div>
+        <div class="dropdown-item dropdown-check dropdown-sub" id="menuDisplayDesktopFull" style="display:none">&nbsp;&nbsp;Desktop — Full Display</div>
       </div>
       </div>
     </div>
@@ -46,6 +54,7 @@
 <div id="detail-screen" class="screen">
   <div class="detail-bg" id="detail-bg"></div>
   <canvas id="live-canvas" width="400" height="900"></canvas>
+  <div class="detail-pane-empty">Select a city to see its weather</div>
   <div class="detail-content">
     <button class="back-btn" id="back-btn">&larr; Cities</button>
     <div class="detail-city" id="detail-city">--</div>
@@ -67,6 +76,8 @@
     <button class="detail-map-btn" id="detail-map-btn">🗺 View Weather Map</button>
   </div>
 </div>
+</div>
+<!-- /split-wrap -->
 
 <!-- MAP SCREEN -->
 <div id="map-screen" class="screen">

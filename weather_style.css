@@ -2,6 +2,134 @@
 
 :root {
   --font: 'Roboto', sans-serif;
+  --app-width: 400px;
+
+  /* Content scale — grows alongside --app-width so wider layouts look
+     genuinely enlarged instead of just a wider empty box. */
+  --fs-city-name: 24px;
+  --fs-city-temp: 48px;
+  --card-pad: 16px 18px;
+  --card-min-h: 100px;
+  --fs-detail-city: 28px;
+  --detail-circle-size: 140px;
+  --fs-detail-circle: 52px;
+  --fs-condition-icon: 40px;
+  --fs-condition-text: 18px;
+  --detail-grid-cols: 1fr 1fr;
+  --fs-dc-value: 20px;
+  --dc-circle-size: 60px;
+  --fs-dc-circle: 18px;
+  --card-temp-reserve: 90px;
+  --sidebar-width: 320px;
+}
+
+/* ── Scale tier: mid (iPad portrait ~600px container) ───────────────── */
+@media (min-width: 700px) {
+  :root {
+    --app-width: 600px;
+    --fs-city-name: 22px;
+    --fs-city-temp: 40px;
+    --card-pad: 14px 16px;
+    --card-min-h: 88px;
+    --fs-detail-city: 34px;
+    --detail-circle-size: 170px;
+    --fs-detail-circle: 64px;
+    --fs-condition-icon: 48px;
+    --fs-condition-text: 20px;
+    --detail-grid-cols: 1fr 1fr;
+    --fs-dc-value: 22px;
+    --dc-circle-size: 72px;
+    --fs-dc-circle: 20px;
+    --card-temp-reserve: 82px;
+    --sidebar-width: 340px;
+  }
+}
+
+/* iPad landscape (~1024-1366px) and small laptop windows — same scale tier
+   as portrait, just a wider container */
+@media (min-width: 1000px) {
+  :root { --app-width: 760px; }
+}
+
+/* ── Scale tier: large (desktop / iPad landscape at full size) ──────── */
+@media (min-width: 1400px) {
+  :root {
+    --app-width: 900px;
+    --fs-city-name: 25px;
+    --fs-city-temp: 46px;
+    --card-pad: 16px 18px;
+    --card-min-h: 96px;
+    --fs-detail-city: 40px;
+    --detail-circle-size: 200px;
+    --fs-detail-circle: 76px;
+    --fs-condition-icon: 56px;
+    --fs-condition-text: 22px;
+    --detail-grid-cols: 1fr 1fr 1fr;
+    --fs-dc-value: 24px;
+    --dc-circle-size: 84px;
+    --fs-dc-circle: 22px;
+    --card-temp-reserve: 92px;
+    --sidebar-width: 380px;
+  }
+}
+
+/* Manual override via menu — beats the automatic breakpoints above regardless
+   of actual device width, so "Desktop" mode looks the same on an iPad as it
+   does on a computer, and "Phone" mode stays phone-sized even on a big screen. */
+html.display-phone {
+  --app-width: 400px;
+  --fs-city-name: 24px; --fs-city-temp: 48px; --card-pad: 16px 18px; --card-min-h: 100px;
+  --fs-detail-city: 28px; --detail-circle-size: 140px; --fs-detail-circle: 52px;
+  --fs-condition-icon: 40px; --fs-condition-text: 18px; --detail-grid-cols: 1fr 1fr;
+  --fs-dc-value: 20px; --dc-circle-size: 60px; --fs-dc-circle: 18px; --card-temp-reserve: 90px; --sidebar-width: 320px;
+}
+html.display-desktop { --app-width: 760px; }
+
+/* Locked sub-modes — ignore the device's actual physical rotation entirely,
+   unlike "Desktop (Auto-Rotate)" below which follows it. */
+html.display-desktop-portrait,
+html.display-desktop-landscape,
+html.display-desktop {
+  --fs-city-name: 22px; --fs-city-temp: 40px; --card-pad: 14px 16px; --card-min-h: 88px;
+  --fs-detail-city: 34px; --detail-circle-size: 170px; --fs-detail-circle: 64px;
+  --fs-condition-icon: 48px; --fs-condition-text: 20px; --detail-grid-cols: 1fr 1fr;
+  --fs-dc-value: 22px; --dc-circle-size: 72px; --fs-dc-circle: 20px; --card-temp-reserve: 82px; --sidebar-width: 340px;
+}
+html.display-desktop-portrait  { --app-width: 600px; }
+html.display-desktop-landscape,
+html.display-desktop-landscape.display-desktop {
+  --app-width: 900px;
+  --fs-city-name: 25px; --fs-city-temp: 46px; --card-pad: 16px 18px; --card-min-h: 96px;
+  --fs-detail-city: 40px; --detail-circle-size: 200px; --fs-detail-circle: 76px;
+  --fs-condition-icon: 56px; --fs-condition-text: 22px; --detail-grid-cols: 1fr 1fr 1fr;
+  --fs-dc-value: 24px; --dc-circle-size: 84px; --fs-dc-circle: 22px; --card-temp-reserve: 92px; --sidebar-width: 380px;
+}
+/* Full Display — desktop-only. Same content scale as Desktop Landscape, but
+   instead of a fixed 900px pane, the detail area stretches to fill whatever
+   is left of the actual browser window after the sidebar, so the whole
+   window is covered edge-to-edge with no side margins. */
+html.display-desktop-full {
+  --sidebar-width: 380px;
+  --app-width: max(320px, calc(100vw - 380px));
+  --fs-city-name: 25px; --fs-city-temp: 46px; --card-pad: 16px 18px; --card-min-h: 96px;
+  --fs-detail-city: 40px; --detail-circle-size: 200px; --fs-detail-circle: 76px;
+  --fs-condition-icon: 56px; --fs-condition-text: 22px; --detail-grid-cols: 1fr 1fr 1fr;
+  --fs-dc-value: 24px; --dc-circle-size: 84px; --fs-dc-circle: 22px; --card-temp-reserve: 92px;
+}
+
+/* Desktop mode adapts to a tablet's rotation: landscape has much more width
+   to work with than portrait, so use it rather than leaving it empty. */
+@media (orientation: landscape) {
+  html.display-desktop {
+    --app-width: 900px;
+    --fs-city-name: 25px; --fs-city-temp: 46px; --card-pad: 16px 18px; --card-min-h: 96px;
+    --fs-detail-city: 40px; --detail-circle-size: 200px; --fs-detail-circle: 76px;
+    --fs-condition-icon: 56px; --fs-condition-text: 22px; --detail-grid-cols: 1fr 1fr 1fr;
+    --fs-dc-value: 24px; --dc-circle-size: 84px; --fs-dc-circle: 22px; --card-temp-reserve: 92px; --sidebar-width: 380px;
+  }
+}
+@media (orientation: portrait) {
+  html.display-desktop { --app-width: 600px; }
 }
 
 body {
@@ -12,11 +140,12 @@ body {
   align-items: flex-start;
   min-height: 100vh;
   position: relative;
+  overflow-x: hidden;
 }
 
 /* ===== SCREENS ===== */
 .screen {
-  width: 400px;
+  width: var(--app-width);
   min-height: 100vh;
   position: absolute;
   top: 0;
@@ -29,6 +158,79 @@ body {
   z-index: 0;
 }
 .screen.active { visibility: visible; pointer-events: auto; z-index: 1; }
+
+/* ===== SPLIT LAYOUT (wide screens: list + detail side by side) ===== */
+/* Toggled by JS (html.split-layout) once --app-width reaches tablet-portrait
+   size and up. Below that, #split-wrap has no effect — .screen children
+   fall back to their normal absolute-positioned, one-at-a-time behavior
+   since #split-wrap itself isn't positioned (position:absolute bubbles up
+   to <body>, unchanged from before). */
+html.split-layout #split-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: calc(var(--sidebar-width) + var(--app-width));
+  margin: 0 auto;
+  min-height: 100vh;
+}
+html.split-layout #cities-screen {
+  position: relative;
+  top: auto; left: auto; right: auto; margin: 0;
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  min-height: 100vh;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 1;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+html.split-layout #detail-screen {
+  position: relative;
+  top: auto; left: auto; right: auto; margin: 0;
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  min-height: 100vh;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 1;
+}
+/* No "back to cities" needed when the list is always visible alongside it */
+html.split-layout #detail-screen .back-btn { display: none; }
+/* Map is a full overlay, not part of #split-wrap, but should still match the
+   same overall footprint as the split list+detail view rather than shrinking
+   back down to a single-pane width when opened. */
+html.split-layout #map-screen {
+  width: calc(var(--sidebar-width) + var(--app-width));
+}
+/* The animated bg/canvas use position:fixed centered on the *viewport*;
+   in split layout the detail pane isn't viewport-centered anymore (it sits
+   to the right of the sidebar), so re-center them on the pane instead. */
+html.split-layout .detail-bg,
+html.split-layout #live-canvas {
+  left: calc(50vw + var(--sidebar-width) / 2);
+}
+/* Empty-state prompt shown in the detail pane before any city is picked */
+.detail-pane-empty {
+  display: none;
+  height: 100%;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: rgba(255,255,255,0.4);
+  font-family: var(--font);
+  font-size: 16px;
+  padding: 40px;
+}
+html.split-layout #detail-screen.pane-empty .detail-content { display: none; }
+html.split-layout #detail-screen.pane-empty .detail-pane-empty { display: flex; }
+
+/* Highlights which city the detail pane is currently showing — only
+   meaningful once the list and detail are visible side by side. */
+html.split-layout .city-card.selected {
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.85), 0 4px 16px rgba(0,0,0,0.35);
+}
 
 /* ===== CITIES SCREEN ===== */
 #cities-screen { background: #000; overflow-y: auto; height: 100vh; cursor: grab; user-select: none; scrollbar-width: none; }
@@ -102,6 +304,12 @@ body {
 }
 .dropdown-item:hover { background: #e8f0fe; }
 
+.dropdown-item.dropdown-sub {
+  padding-left: 40px;
+  font-size: 13.5px;
+  color: #555;
+}
+
 .dropdown-divider { height: 1px; background: #e0e0e0; margin: 4px 0; }
 
 .dropdown-check::before {
@@ -170,23 +378,23 @@ body {
 
 .city-card {
   border-radius: 16px;
-  padding: 16px 18px;
+  padding: var(--card-pad);
   margin-bottom: 12px;
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition: transform 0.15s, filter 0.15s;
-  min-height: 100px;
+  transition: transform 0.15s, filter 0.15s, padding 0.15s;
+  min-height: var(--card-min-h);
 }
 .city-card:hover { transform: scale(1.01); filter: brightness(1.05); }
 .city-card:active { transform: scale(0.99); }
 
 .card-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
 .card-top > div:last-child { position: absolute; top: 0; right: 0; text-align: right; }
-.card-top > div:first-child { padding-right: 90px; }
+.card-top > div:first-child { padding-right: var(--card-temp-reserve); transition: padding-right 0.15s; }
 
-.city-name { font-size: 24px; font-weight: 700; color: white; font-family: var(--font); }
-.city-temp { font-size: 48px; font-weight: 400; color: white; line-height: 1; font-family: var(--font); }
+.city-name { font-size: var(--fs-city-name); font-weight: 700; color: white; font-family: var(--font); }
+.city-temp { font-size: var(--fs-city-temp); font-weight: 400; color: white; line-height: 1; font-family: var(--font); }
 .city-time { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.75); margin-top: 2px; font-family: var(--font); }
 .city-condition { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.75); font-family: var(--font); }
 .city-hilo { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.85); text-align: right; margin-top: 4px; font-family: var(--font); }
@@ -295,7 +503,7 @@ body {
 .detail-bg {
   position: fixed;
   top: 0; left: 50%; transform: translateX(-50%);
-  width: 400px;
+  width: var(--app-width);
   height: 100vh;
   z-index: 0;
   transition: background 0.8s ease;
@@ -304,7 +512,7 @@ body {
 #live-canvas {
   position: fixed;
   top: 0; left: 50%; transform: translateX(-50%);
-  width: 400px;
+  width: var(--app-width);
   height: 100vh;
   pointer-events: none;
   z-index: 1;
@@ -338,7 +546,7 @@ body {
 .back-btn:hover { opacity: 1; }
 
 .detail-city {
-  font-size: 28px;
+  font-size: var(--fs-detail-city);
   font-weight: 500;
   color: white;
   margin-top: 6px;
@@ -354,25 +562,25 @@ body {
   justify-content: center;
 }
 .detail-temp-circle {
-  width: 140px; height: 140px;
+  width: var(--detail-circle-size); height: var(--detail-circle-size);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  transition: background-color 0.5s;
+  transition: background-color 0.5s, width 0.15s, height 0.15s;
 }
 .detail-temp-circle span {
-  font-size: 52px;
+  font-size: var(--fs-detail-circle);
   font-weight: 400;
   color: white;
   font-family: var(--font);
   text-shadow: none;
 }
 
-.detail-condition-icon { font-size: 40px; margin: 4px 0 2px; }
+.detail-condition-icon { font-size: var(--fs-condition-icon); margin: 4px 0 2px; }
 .detail-condition-text {
-  font-size: 18px;
+  font-size: var(--fs-condition-text);
   color: rgba(255,255,255,0.9);
   margin-bottom: 12px;
   font-family: var(--font);
@@ -488,7 +696,7 @@ body {
 .detail-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: var(--detail-grid-cols);
   gap: 10px;
 }
 .detail-card {
@@ -508,7 +716,7 @@ body {
   font-family: var(--font);
 }
 .detail-card .dc-value {
-  font-size: 20px;
+  font-size: var(--fs-dc-value);
   font-weight: 600;
   color: white;
   line-height: 1.2;
@@ -517,12 +725,12 @@ body {
 }
 .dc-circle-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .dc-circle {
-  width: 60px; height: 60px;
+  width: var(--dc-circle-size); height: var(--dc-circle-size);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
-.dc-circle span { font-size: 18px; font-weight: 700; font-family: var(--font); text-shadow: none; }
+.dc-circle span { font-size: var(--fs-dc-circle); font-weight: 700; font-family: var(--font); text-shadow: none; }
 .dc-circle-label { font-size: 12px; color: white; text-align: center; font-family: var(--font); }
 
 /* ===== WEATHER ICON COLORS ===== */
@@ -866,7 +1074,7 @@ body {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 400px;
+  width: var(--app-width);
   max-width: 100vw;
   background: #1c1c1e;
   border-radius: 20px 20px 0 0;

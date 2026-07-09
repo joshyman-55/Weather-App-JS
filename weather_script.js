@@ -17,9 +17,11 @@ let liveAnimType = null;
 let searchDebounce = null;
 let dragSrcCity = null;
 let editMode = false;
+let displayMode = 'auto';
 
 const STORAGE_KEY = 'weather_app_cities_v3';
 const UNIT_KEY = 'weather_app_unit_v1';
+const DISPLAY_KEY = 'weather_app_display_v1';
 const CACHE_KEY = 'weather_app_cache_v1';
 const COORDS_KEY = 'weather_app_coords_v1';
 let cityCoords = {};
@@ -607,12 +609,22 @@ function loadCities() {
       if (Array.isArray(parsed) && parsed.length > 0) {
         savedCities = parsed;
         migrateOldCities();
+        restoreDisplayMode();
         return;
       }
     }
   } catch (e) {}
   savedCities = DEFAULT_CITIES.slice();
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
+  restoreDisplayMode();
+}
+
+function restoreDisplayMode() {
+  try {
+    var savedDisplay = storageGet(DISPLAY_KEY);
+    var validModes = ['phone', 'desktop', 'desktop-portrait', 'desktop-landscape', 'desktop-full'];
+    applyDisplayMode(validModes.includes(savedDisplay) ? savedDisplay : 'auto');
+  } catch(e) {}
 }
 
 function migrateOldCities() {
@@ -742,6 +754,14 @@ function startLiveClock() {
 // SCREEN MANAGER
 // =========================================================
 function showScreen(id) {
+  var splitMode = document.documentElement.classList.contains('split-layout');
+  if (splitMode && (id === 'cities-screen' || id === 'detail-screen')) {
+    // Both panes stay visible side by side; only map-screen is a full overlay.
+    document.getElementById('map-screen').classList.remove('active');
+    document.getElementById('cities-screen').classList.add('active');
+    document.getElementById('detail-screen').classList.add('active');
+    return;
+  }
   ['cities-screen', 'detail-screen', 'map-screen'].forEach(function(s) {
     document.getElementById(s).classList.remove('active');
   });
@@ -788,7 +808,7 @@ async function renderCitiesScreen() {
         const name = city.split(',')[0].trim();
         const isLocCity = city === storageGet(LOC_KEY);
         card.style.background = '';
-        card.className = 'city-card card-' + cat + (editMode ? ' show-delete' : '');
+        card.className = 'city-card card-' + cat + (editMode ? ' show-delete' : '') + (city === currentCity ? ' selected' : '');
         card.dataset.city = city;
         card.innerHTML =
           '<div class="card-top">' +
@@ -1153,10 +1173,14 @@ document.addEventListener('click', function(e) {
 async function showDetail(city) {
   citiesScrollY = document.getElementById('cities-screen').scrollTop;
   var ds = document.getElementById('detail-screen');
+  ds.classList.remove('pane-empty');
   ds.scrollTop = 0;
   showScreen('detail-screen');
   ds.scrollTop = 0;
   currentCity = city;
+  document.querySelectorAll('.city-card').forEach(function(c) {
+    c.classList.toggle('selected', c.dataset.city === city);
+  });
   document.getElementById('detail-city').textContent = city.split(',')[0].trim();
   document.getElementById('detail-temp').textContent = '';
   document.getElementById('detail-circle').style.backgroundColor = 'rgba(255,255,255,0.15)';
@@ -1468,7 +1492,91 @@ function makeTextCard(title, value) {
 // =========================================================
 const canvas = document.getElementById('live-canvas');
 const ctx = canvas.getContext('2d');
-const W = 400, H = 900;
+
+// Reading --app-width back via getComputedStyle().getPropertyValue() only
+// ever returns the literal specified string (e.g. "calc(100vw - 380px)"),
+// never a resolved pixel value — custom properties aren't computed the way
+// real CSS properties are. That silently broke Full Display (parseFloat on
+// "calc(...)" is NaN, which fell back to 400 and made the split-layout
+// threshold check fail). Measuring the actual rendered box instead sidesteps
+// this entirely and works for every mode, calc()-based or not: #detail-screen
+// has width:var(--app-width) directly outside split-layout, and fills the
+// exact remainder of sidebar+app-width via flex:1 once split-layout is on.
+function getResolvedAppWidth() {
+  var w = document.getElementById('detail-screen').getBoundingClientRect().width;
+  return Math.round(w) || 400;
+}
+
+const appWidthPx = getResolvedAppWidth();
+canvas.width = appWidthPx;
+canvas.height = 900;
+let W = canvas.width, H = canvas.height;
+let lastLiveAnimArgs = null;
+
+function updateSplitLayoutClass() {
+  var wasSplit = document.documentElement.classList.contains('split-layout');
+  var isSplit;
+  if (displayMode === 'phone') {
+    // Explicit phone override — never split, even on a huge window.
+    isSplit = false;
+  } else if (displayMode === 'desktop' || displayMode === 'desktop-portrait' ||
+             displayMode === 'desktop-landscape' || displayMode === 'desktop-full') {
+    // Explicit desktop-family override — always split. If this were left to
+    // the width check below, narrowing the window in Full Display mode
+    // (sidebar + remaining content shrinking together) could drop the
+    // measured content width under 600 and collapse split-layout off,
+    // which then centers a single narrower screen in the full window and
+    // shows as empty gaps on both sides — exactly the bug being fixed here.
+    isSplit = true;
+  } else {
+    // Auto — genuinely adapt based on real available width.
+    isSplit = getResolvedAppWidth() >= 600;
+  }
+  document.documentElement.classList.toggle('split-layout', isSplit);
+  if (isSplit && !wasSplit) {
+    // Entering split mode — populate the detail pane so it isn't blank
+    if (!currentCity && savedCities && savedCities.length > 0) {
+      showDetail(savedCities[0]);
+    } else if (!currentCity) {
+      document.getElementById('detail-screen').classList.add('pane-empty');
+      document.getElementById('detail-screen').classList.add('active');
+    }
+  } else if (!isSplit && wasSplit) {
+    // Leaving split mode — collapse back to single-screen navigation
+    if (currentCity) {
+      document.getElementById('cities-screen').classList.remove('active');
+      document.getElementById('detail-screen').classList.add('active');
+    } else {
+      document.getElementById('detail-screen').classList.remove('active');
+      document.getElementById('cities-screen').classList.add('active');
+    }
+  }
+}
+
+function resizeCanvasForAppWidth() {
+  updateSplitLayoutClass();
+  if (mapInitialized && document.getElementById('map-screen').classList.contains('active')) {
+    setTimeout(function() { mapInstance.invalidateSize(); }, 50);
+  }
+  var newWidth = getResolvedAppWidth();
+  if (newWidth === canvas.width) return;
+  canvas.width = newWidth;
+  canvas.height = 900;
+  W = canvas.width; H = canvas.height;
+  if (lastLiveAnimArgs && document.getElementById('detail-screen').classList.contains('active')) {
+    startLiveAnim(lastLiveAnimArgs.condition, lastLiveAnimArgs.isDay, lastLiveAnimArgs.currentMilitary, lastLiveAnimArgs.sunriseInt, lastLiveAnimArgs.sunsetInt);
+  } else {
+    stopLiveAnim();
+  }
+}
+window.addEventListener('resize', function() {
+  clearTimeout(window._appWidthResizeDebounce);
+  window._appWidthResizeDebounce = setTimeout(resizeCanvasForAppWidth, 150);
+});
+window.addEventListener('orientationchange', function() {
+  clearTimeout(window._appWidthResizeDebounce);
+  window._appWidthResizeDebounce = setTimeout(resizeCanvasForAppWidth, 150);
+});
 
 function stopLiveAnim() {
   if (liveAnimFrame) cancelAnimationFrame(liveAnimFrame);
@@ -1477,6 +1585,7 @@ function stopLiveAnim() {
 }
 
 function startLiveAnim(condition, isDay, currentMilitary, sunriseInt, sunsetInt) {
+  lastLiveAnimArgs = { condition: condition, isDay: isDay, currentMilitary: currentMilitary, sunriseInt: sunriseInt, sunsetInt: sunsetInt };
   stopLiveAnim();
   const c = condition.toLowerCase();
 
@@ -1968,6 +2077,29 @@ document.getElementById('menuImperial').addEventListener('click', function() { d
 document.getElementById('menuMetric').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('metric'); });
 document.getElementById('menuHybrid').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('hybrid'); });
 document.getElementById('menuAdvanced').addEventListener('click', function() { dropdownMenu.classList.remove('open'); openAdvancedPanel(); });
+document.getElementById('menuDisplayAuto').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('auto'); });
+document.getElementById('menuDisplayPhone').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone'); });
+document.getElementById('menuDisplayDesktop').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop'); });
+document.getElementById('menuDisplayDesktopPortrait').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-portrait'); });
+document.getElementById('menuDisplayDesktopLandscape').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-landscape'); });
+
+// ─── Desktop platform detection — gates "Full Display", which only makes
+// sense on a real PC/Mac/Linux window, not a tablet ────────────────────────
+function isDesktopComputer() {
+  var ua = navigator.userAgent;
+  if (/iPhone|iPod/.test(ua)) return false;
+  if (/iPad/.test(ua)) return false;
+  // iPadOS 13+ reports itself as "MacIntel" — the only reliable way to tell
+  // it apart from a real Mac is that real Macs report zero touch points.
+  if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return false;
+  if (/Android/.test(ua)) return false;
+  if (/Mobi/.test(ua)) return false;
+  return true;
+}
+if (isDesktopComputer()) {
+  document.getElementById('menuDisplayDesktopFull').style.display = 'flex';
+}
+document.getElementById('menuDisplayDesktopFull').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-full'); });
 
 function applyUnit(mode) {
   unitMode = mode;
@@ -2002,6 +2134,27 @@ function updateChecks() {
   });
   const map = {default:'menuDefault', imperial:'menuImperial', metric:'menuMetric', hybrid:'menuHybrid', advanced:'menuAdvanced'};
   var el = document.getElementById(map[unitMode]); if (el) el.classList.add('checked');
+}
+
+function updateDisplayChecks() {
+  ['menuDisplayAuto','menuDisplayPhone','menuDisplayDesktop','menuDisplayDesktopPortrait','menuDisplayDesktopLandscape','menuDisplayDesktopFull'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.classList.remove('checked');
+  });
+  const map = {auto:'menuDisplayAuto', phone:'menuDisplayPhone', desktop:'menuDisplayDesktop', 'desktop-portrait':'menuDisplayDesktopPortrait', 'desktop-landscape':'menuDisplayDesktopLandscape', 'desktop-full':'menuDisplayDesktopFull'};
+  var el = document.getElementById(map[displayMode]); if (el) el.classList.add('checked');
+}
+
+function applyDisplayMode(mode) {
+  displayMode = mode;
+  storageSet(DISPLAY_KEY, mode);
+  document.documentElement.classList.remove('display-phone', 'display-desktop', 'display-desktop-portrait', 'display-desktop-landscape', 'display-desktop-full');
+  if (mode === 'phone') document.documentElement.classList.add('display-phone');
+  else if (mode === 'desktop') document.documentElement.classList.add('display-desktop');
+  else if (mode === 'desktop-portrait') document.documentElement.classList.add('display-desktop-portrait');
+  else if (mode === 'desktop-landscape') document.documentElement.classList.add('display-desktop-landscape');
+  else if (mode === 'desktop-full') document.documentElement.classList.add('display-desktop-full');
+  updateDisplayChecks();
+  resizeCanvasForAppWidth();
 }
 
 // ─── ADVANCED UNITS PANEL ─────────────────────────────────────────────────────
