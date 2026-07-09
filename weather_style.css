@@ -282,11 +282,14 @@ html.split-layout .city-card.selected {
   top: calc(100% + 8px);
   right: 0;
   min-width: 210px;
+  max-height: calc(100vh - 80px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #ffffff;
   border-radius: 8px;
   box-shadow: 0 6px 28px rgba(0,0,0,0.40);
   z-index: 9999;
-  overflow: hidden;
 }
 .dropdown-menu.open { display: block; }
 
