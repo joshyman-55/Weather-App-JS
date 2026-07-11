@@ -2289,13 +2289,17 @@ function addCityPin(city, color, textColor, label, value, lat, lon) {
           '</div>',
     iconAnchor: [22, 22]
   });
-  var m = L.marker([lat, lon], { icon: icon }).addTo(mapInstance);
-  m.on('click', function() {
-    mapPrevScreen = 'detail-screen';
-    showScreen('detail-screen');
-    showDetail(city);
+  // Place the pin on the main world plus the wrapped copies on either side,
+  // so temp circles stay visible when scrolling across the date line.
+  [lon - 360, lon, lon + 360].forEach(function(lng) {
+    var m = L.marker([lat, lng], { icon: icon }).addTo(mapInstance);
+    m.on('click', function() {
+      mapPrevScreen = 'detail-screen';
+      showScreen('detail-screen');
+      showDetail(city);
+    });
+    mapCityMarkers.push(m);
   });
-  mapCityMarkers.push(m);
 }
 
 function placeTempPins() {
@@ -2325,10 +2329,16 @@ function placeAqiPins() {
 
 function drawTempCanvas() {
   var points = [];
+  var centerLng = mapInstance.getCenter().lng;
   savedCities.forEach(function(city) {
     var c = globalCache[city];
     if (!c || c.lat == null) return;
-    var px = mapInstance.latLngToContainerPoint(L.latLng(c.lat, c.lon));
+    // Use the world-copy of this city closest to the current view,
+    // so the heat blob still renders after wrapping around the globe.
+    var lng = c.lon;
+    while (lng - centerLng > 180) lng -= 360;
+    while (lng - centerLng < -180) lng += 360;
+    var px = mapInstance.latLngToContainerPoint(L.latLng(c.lat, lng));
     points.push({ x: px.x, y: px.y, temp: c.currentTemp });
   });
   if (!points.length) return;
@@ -2426,7 +2436,8 @@ function initMap() {
     zoom: 2,
     minZoom: 2,
     maxZoom: 12,
-    maxBounds: [[-85, -200], [85, 200]],
+    worldCopyJump: true,
+    maxBounds: [[-85, -Infinity], [85, Infinity]],
     maxBoundsViscosity: 1.0,
     zoomControl: true,
     attributionControl: true
