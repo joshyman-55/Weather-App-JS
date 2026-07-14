@@ -279,7 +279,7 @@ async function fetchWeatherData(lat, lon) {
     'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
     '&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m,dew_point_2m,visibility,surface_pressure' +
     '&hourly=temperature_2m,weather_code,uv_index' +
-    '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max' +
     '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timeformat=iso8601&timezone=auto&forecast_days=10'
   );
   return r.json();
@@ -359,7 +359,8 @@ async function buildWeatherData(wx, aqi) {
       day: i === 0 ? 'Today' : dayNames[new Date(t+'T12:00').getDay()],
       min: Math.round((daily.temperature_2m_min && daily.temperature_2m_min[i] != null) ? daily.temperature_2m_min[i] : 0),
       max: Math.round((daily.temperature_2m_max && daily.temperature_2m_max[i] != null) ? daily.temperature_2m_max[i] : 0),
-      condition: decodeCode((daily.weather_code && daily.weather_code[i] != null) ? daily.weather_code[i] : 0)
+      condition: decodeCode((daily.weather_code && daily.weather_code[i] != null) ? daily.weather_code[i] : 0),
+      precipChance: (daily.precipitation_probability_max && daily.precipitation_probability_max[i] != null) ? daily.precipitation_probability_max[i] : 0
     };
   });
   const uvMatch = hourlyData.find(function(h) { return Math.abs(h.time - currentMilitary) < 100; });
@@ -622,7 +623,9 @@ function loadCities() {
 function restoreDisplayMode() {
   try {
     var savedDisplay = storageGet(DISPLAY_KEY);
-    var validModes = ['phone', 'desktop', 'desktop-portrait', 'desktop-landscape', 'desktop-full'];
+    // 'phone' was the single legacy phone mode — treat it as Modern now
+    if (savedDisplay === 'phone') savedDisplay = 'phone-modern';
+    var validModes = ['phone-classic', 'phone-modern', 'desktop', 'desktop-portrait', 'desktop-landscape', 'desktop-full'];
     applyDisplayMode(validModes.includes(savedDisplay) ? savedDisplay : 'auto');
   } catch(e) {}
 }
@@ -1359,8 +1362,24 @@ function renderForecast(data) {
       dotHtml = '<div class="forecast-dot" style="left:calc(' + pct.toFixed(1) + '% - 4px);background:' + catColor(rawCur) + '"></div>';
     }
 
+    // Per-day predicted condition icon + rain chance (like Apple Weather).
+    // For any precip-type condition (rain, drizzle, showers, storms, snow,
+    // sleet) ALWAYS show the % under the icon; otherwise only when >= 30%.
+    const condLower = (day.condition || '').toLowerCase();
+    const isPrecipCond = /rain|drizzle|shower|storm|snow|sleet|hail/.test(condLower);
+    let precipHtml = '';
+    if (day.precipChance != null && (isPrecipCond || day.precipChance >= 30)) {
+      precipHtml = '<div class="forecast-precip">' + Math.round(day.precipChance) + '%</div>';
+    }
+    const iconHtml =
+      '<div class="forecast-icon">' +
+        getIcon(day.condition || 'Clear', true) +
+        precipHtml +
+      '</div>';
+
     row.innerHTML =
       '<div class="forecast-day">' + day.day + '</div>' +
+      iconHtml +
       '<div class="forecast-low">' + dMin + '&deg;</div>' +
       '<div class="forecast-bar-wrap">' +
         '<div class="forecast-bar" style="background:' + gradient + '"></div>' +
@@ -1516,7 +1535,7 @@ let lastLiveAnimArgs = null;
 function updateSplitLayoutClass() {
   var wasSplit = document.documentElement.classList.contains('split-layout');
   var isSplit;
-  if (displayMode === 'phone') {
+  if (displayMode === 'phone-classic' || displayMode === 'phone-modern') {
     // Explicit phone override — never split, even on a huge window.
     isSplit = false;
   } else if (displayMode === 'desktop' || displayMode === 'desktop-portrait' ||
@@ -2078,7 +2097,8 @@ document.getElementById('menuMetric').addEventListener('click', function() { dro
 document.getElementById('menuHybrid').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('hybrid'); });
 document.getElementById('menuAdvanced').addEventListener('click', function() { dropdownMenu.classList.remove('open'); openAdvancedPanel(); });
 document.getElementById('menuDisplayAuto').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('auto'); });
-document.getElementById('menuDisplayPhone').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone'); });
+document.getElementById('menuDisplayPhoneClassic').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone-classic'); });
+document.getElementById('menuDisplayPhoneModern').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone-modern'); });
 document.getElementById('menuDisplayDesktop').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop'); });
 document.getElementById('menuDisplayDesktopPortrait').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-portrait'); });
 document.getElementById('menuDisplayDesktopLandscape').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-landscape'); });
@@ -2137,18 +2157,19 @@ function updateChecks() {
 }
 
 function updateDisplayChecks() {
-  ['menuDisplayAuto','menuDisplayPhone','menuDisplayDesktop','menuDisplayDesktopPortrait','menuDisplayDesktopLandscape','menuDisplayDesktopFull'].forEach(function(id) {
+  ['menuDisplayAuto','menuDisplayPhoneClassic','menuDisplayPhoneModern','menuDisplayDesktop','menuDisplayDesktopPortrait','menuDisplayDesktopLandscape','menuDisplayDesktopFull'].forEach(function(id) {
     var el = document.getElementById(id); if (el) el.classList.remove('checked');
   });
-  const map = {auto:'menuDisplayAuto', phone:'menuDisplayPhone', desktop:'menuDisplayDesktop', 'desktop-portrait':'menuDisplayDesktopPortrait', 'desktop-landscape':'menuDisplayDesktopLandscape', 'desktop-full':'menuDisplayDesktopFull'};
+  const map = {auto:'menuDisplayAuto', 'phone-classic':'menuDisplayPhoneClassic', 'phone-modern':'menuDisplayPhoneModern', desktop:'menuDisplayDesktop', 'desktop-portrait':'menuDisplayDesktopPortrait', 'desktop-landscape':'menuDisplayDesktopLandscape', 'desktop-full':'menuDisplayDesktopFull'};
   var el = document.getElementById(map[displayMode]); if (el) el.classList.add('checked');
 }
 
 function applyDisplayMode(mode) {
   displayMode = mode;
   storageSet(DISPLAY_KEY, mode);
-  document.documentElement.classList.remove('display-phone', 'display-desktop', 'display-desktop-portrait', 'display-desktop-landscape', 'display-desktop-full');
-  if (mode === 'phone') document.documentElement.classList.add('display-phone');
+  document.documentElement.classList.remove('display-phone', 'display-phone-classic', 'display-phone-modern', 'display-desktop', 'display-desktop-portrait', 'display-desktop-landscape', 'display-desktop-full');
+  if (mode === 'phone-classic') document.documentElement.classList.add('display-phone-classic');
+  else if (mode === 'phone-modern') document.documentElement.classList.add('display-phone-modern');
   else if (mode === 'desktop') document.documentElement.classList.add('display-desktop');
   else if (mode === 'desktop-portrait') document.documentElement.classList.add('display-desktop-portrait');
   else if (mode === 'desktop-landscape') document.documentElement.classList.add('display-desktop-landscape');

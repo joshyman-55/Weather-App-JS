@@ -1,7 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --font: 'Roboto', sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
   --app-width: 400px;
 
   /* Content scale — grows alongside --app-width so wider layouts look
@@ -76,12 +76,25 @@
 /* Manual override via menu — beats the automatic breakpoints above regardless
    of actual device width, so "Desktop" mode looks the same on an iPad as it
    does on a computer, and "Phone" mode stays phone-sized even on a big screen. */
-html.display-phone {
-  --app-width: 400px;
+/* Phone — Modern: newer tall phones (iPhone X and up, recent Samsung/Android
+   flagships, ~390–430px logical width). Same scale the old single Phone mode
+   used, on a slightly wider pane. */
+html.display-phone,
+html.display-phone-modern {
+  --app-width: min(400px, 100vw);
   --fs-city-name: 24px; --fs-city-temp: 48px; --card-pad: 16px 18px; --card-min-h: 100px;
   --fs-detail-city: 28px; --detail-circle-size: 140px; --fs-detail-circle: 52px;
   --fs-condition-icon: 40px; --fs-condition-text: 18px; --detail-grid-cols: 1fr 1fr;
   --fs-dc-value: 20px; --dc-circle-size: 60px; --fs-dc-circle: 18px; --card-temp-reserve: 90px; --sidebar-width: 320px;
+}
+/* Phone — Classic (Small): iPhone SE / older Androids (~320–375px logical
+   width). Narrower pane and a smaller content scale so nothing overflows. */
+html.display-phone-classic {
+  --app-width: min(375px, 100vw);
+  --fs-city-name: 20px; --fs-city-temp: 38px; --card-pad: 12px 14px; --card-min-h: 84px;
+  --fs-detail-city: 24px; --detail-circle-size: 112px; --fs-detail-circle: 42px;
+  --fs-condition-icon: 32px; --fs-condition-text: 16px; --detail-grid-cols: 1fr 1fr;
+  --fs-dc-value: 17px; --dc-circle-size: 52px; --fs-dc-circle: 15px; --card-temp-reserve: 72px; --sidebar-width: 320px;
 }
 html.display-desktop { --app-width: 760px; }
 
@@ -662,6 +675,7 @@ html.split-layout .city-card.selected {
   border-radius: 16px;
   padding: 12px 14px;
   margin-bottom: 12px;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 .forecast-title {
@@ -694,6 +708,24 @@ html.split-layout .city-card.selected {
   z-index: 2;
 }
 .forecast-high { font-size: 14px; color: white; min-width: 34px; font-family: var(--font); }
+.forecast-icon {
+  min-width: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.forecast-icon .wi-sun { font-size: 17px; }
+.forecast-precip {
+  font-size: 10px;
+  font-weight: 600;
+  color: #7fd4ff;
+  margin-top: 2px;
+  font-family: var(--font);
+}
 
 /* ===== DETAIL GRID ===== */
 .detail-grid {
@@ -707,6 +739,7 @@ html.split-layout .city-card.selected {
   border-radius: 16px;
   padding: 12px 14px;
   min-height: 100px;
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   border: 1px solid rgba(255,255,255,0.08);
 }
@@ -856,6 +889,7 @@ html.split-layout .city-card.selected {
   gap: 12px;
   padding: 52px 16px 10px;
   background: rgba(0,0,0,0.6);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   z-index: 500;
   position: relative;
@@ -873,6 +907,7 @@ html.split-layout .city-card.selected {
   gap: 8px;
   padding: 8px 16px;
   background: rgba(0,0,0,0.5);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   z-index: 500;
   position: relative;
@@ -910,6 +945,7 @@ html.split-layout .city-card.selected {
 
 .map-legend {
   background: rgba(0,0,0,0.7);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   padding: 10px 16px;
   flex-shrink: 0;
@@ -993,6 +1029,7 @@ html.split-layout .city-card.selected {
   font-family: var(--font);
   font-weight: 500;
   cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   transition: background 0.2s;
 }
