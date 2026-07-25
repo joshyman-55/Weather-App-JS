@@ -2,7 +2,10 @@
 
 :root {
   --font: -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-  --app-width: 400px;
+  /* Auto mode: track the real tab width instead of snapping to preset
+     steps. Auto is the only mode with no html.display-* class, so every
+     preset below still overrides this by specificity. */
+  --app-width: min(100vw, 900px);
 
   /* Content scale — grows alongside --app-width so wider layouts look
      genuinely enlarged instead of just a wider empty box. */
@@ -26,7 +29,6 @@
 /* ── Scale tier: mid (iPad portrait ~600px container) ───────────────── */
 @media (min-width: 700px) {
   :root {
-    --app-width: 600px;
     --fs-city-name: 22px;
     --fs-city-temp: 40px;
     --card-pad: 14px 16px;
@@ -45,16 +47,9 @@
   }
 }
 
-/* iPad landscape (~1024-1366px) and small laptop windows — same scale tier
-   as portrait, just a wider container */
-@media (min-width: 1000px) {
-  :root { --app-width: 760px; }
-}
-
 /* ── Scale tier: large (desktop / iPad landscape at full size) ──────── */
 @media (min-width: 1400px) {
   :root {
-    --app-width: 900px;
     --fs-city-name: 25px;
     --fs-city-temp: 46px;
     --card-pad: 16px 18px;
@@ -79,70 +74,67 @@
 /* Phone — Modern: newer tall phones (iPhone X and up, recent Samsung/Android
    flagships, ~390–430px logical width). Same scale the old single Phone mode
    used, on a slightly wider pane. */
-html.display-phone,
-html.display-phone-modern {
-  --app-width: min(400px, 100vw);
+/* Phone mode has two jobs that want opposite widths, so it takes two rules.
+   On a desktop or tablet it's a preview, and should stay phone-shaped at
+   400px rather than sprawling. On an actual handset it should fill the
+   screen edge to edge at whatever that model's logical width is — 375pt on
+   an iPhone 7, 402 on a 17 Pro, 440 on a 17 Pro Max. A single ceiling can't
+   do both: set it wide enough for a Pro Max and the desktop preview grows
+   with it, which is the regression this replaces. */
+html.display-phone {
+  --app-width: min(100vw, 400px);
   --fs-city-name: 24px; --fs-city-temp: 48px; --card-pad: 16px 18px; --card-min-h: 100px;
   --fs-detail-city: 28px; --detail-circle-size: 140px; --fs-detail-circle: 52px;
   --fs-condition-icon: 40px; --fs-condition-text: 18px; --detail-grid-cols: 1fr 1fr;
   --fs-dc-value: 20px; --dc-circle-size: 60px; --fs-dc-circle: 18px; --card-temp-reserve: 90px; --sidebar-width: 320px;
 }
-/* Phone — Classic (Small): iPhone SE / older Androids (~320–375px logical
-   width). Narrower pane and a smaller content scale so nothing overflows. */
-html.display-phone-classic {
-  --app-width: min(375px, 100vw);
-  --fs-city-name: 20px; --fs-city-temp: 38px; --card-pad: 12px 14px; --card-min-h: 84px;
-  --fs-detail-city: 24px; --detail-circle-size: 112px; --fs-detail-circle: 42px;
-  --fs-condition-icon: 32px; --fs-condition-text: 16px; --detail-grid-cols: 1fr 1fr;
-  --fs-dc-value: 17px; --dc-circle-size: 52px; --fs-dc-circle: 15px; --card-temp-reserve: 72px; --sidebar-width: 320px;
+/* Real handset (no phone is wider than 500pt today) — fill it entirely,
+   so no model gets a dead strip regardless of how wide it gets. */
+@media (max-width: 500px) {
+  html.display-phone { --app-width: 100vw; }
 }
-html.display-desktop { --app-width: 760px; }
 
-/* Locked sub-modes — ignore the device's actual physical rotation entirely,
-   unlike "Desktop (Auto-Rotate)" below which follows it. */
-html.display-desktop-portrait,
-html.display-desktop-landscape,
+/* Desktop: full-window and resizable. The pane takes the entire remainder
+   of the browser window after the sidebar, so sidebar + detail always add
+   up to exactly 100vw — no side gaps at any window size, and it re-flows
+   live as the window is dragged. */
+html.display-desktop {
+  --app-width: max(320px, calc(100vw - var(--sidebar-width)));
+}
+
+/* Auto + split: the detail pane takes the rest of the tab, so list +
+   detail cover the window edge to edge with no dead margin. The
+   :not() keeps this off every explicit preset mode. */
+html.split-layout:not([class*="display-"]) {
+  --app-width: max(600px, calc(100vw - var(--sidebar-width)));
+}
+
 html.display-desktop {
   --fs-city-name: 22px; --fs-city-temp: 40px; --card-pad: 14px 16px; --card-min-h: 88px;
   --fs-detail-city: 34px; --detail-circle-size: 170px; --fs-detail-circle: 64px;
   --fs-condition-icon: 48px; --fs-condition-text: 20px; --detail-grid-cols: 1fr 1fr;
   --fs-dc-value: 22px; --dc-circle-size: 72px; --fs-dc-circle: 20px; --card-temp-reserve: 82px; --sidebar-width: 340px;
 }
-html.display-desktop-portrait  { --app-width: 600px; }
-html.display-desktop-landscape,
-html.display-desktop-landscape.display-desktop {
-  --app-width: 900px;
-  --fs-city-name: 25px; --fs-city-temp: 46px; --card-pad: 16px 18px; --card-min-h: 96px;
-  --fs-detail-city: 40px; --detail-circle-size: 200px; --fs-detail-circle: 76px;
-  --fs-condition-icon: 56px; --fs-condition-text: 22px; --detail-grid-cols: 1fr 1fr 1fr;
-  --fs-dc-value: 24px; --dc-circle-size: 84px; --fs-dc-circle: 22px; --card-temp-reserve: 92px; --sidebar-width: 380px;
-}
-/* Full Display — desktop-only. Same content scale as Desktop Landscape, but
-   instead of a fixed 900px pane, the detail area stretches to fill whatever
-   is left of the actual browser window after the sidebar, so the whole
-   window is covered edge-to-edge with no side margins. */
-html.display-desktop-full {
-  --sidebar-width: 380px;
-  --app-width: max(320px, calc(100vw - 380px));
-  --fs-city-name: 25px; --fs-city-temp: 46px; --card-pad: 16px 18px; --card-min-h: 96px;
-  --fs-detail-city: 40px; --detail-circle-size: 200px; --fs-detail-circle: 76px;
-  --fs-condition-icon: 56px; --fs-condition-text: 22px; --detail-grid-cols: 1fr 1fr 1fr;
-  --fs-dc-value: 24px; --dc-circle-size: 84px; --fs-dc-circle: 22px; --card-temp-reserve: 92px;
-}
 
 /* Desktop mode adapts to a tablet's rotation: landscape has much more width
    to work with than portrait, so use it rather than leaving it empty. */
 @media (orientation: landscape) {
   html.display-desktop {
-    --app-width: 900px;
     --fs-city-name: 25px; --fs-city-temp: 46px; --card-pad: 16px 18px; --card-min-h: 96px;
     --fs-detail-city: 40px; --detail-circle-size: 200px; --fs-detail-circle: 76px;
     --fs-condition-icon: 56px; --fs-condition-text: 22px; --detail-grid-cols: 1fr 1fr 1fr;
     --fs-dc-value: 24px; --dc-circle-size: 84px; --fs-dc-circle: 22px; --card-temp-reserve: 92px; --sidebar-width: 380px;
   }
 }
-@media (orientation: portrait) {
-  html.display-desktop { --app-width: 600px; }
+
+/* App-shell lock: the document itself must never scroll. Every screen
+   (#cities-screen, #detail-screen, #map-screen) is viewport-height with its
+   own overflow-y, so all scrolling happens *inside* a pane. Without this,
+   any stray overflow pushes the whole page down and the last element ends up
+   below the fold — the "cut off at the bottom" bug on iPhone and iPad. */
+html {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -151,15 +143,30 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  /* Pinned rather than merely overflow:hidden. iOS Safari has a long-
+     standing quirk where overflow:hidden on the viewport scroller is
+     ignored, which let the whole page drag upward — taking the sticky
+     .cities-top-bar with it, since sticky can only hold against a scroll
+     container that is actually the one scrolling. Fixed insets remove the
+     document from the scroll picture entirely, so #cities-screen becomes
+     the only scroller and the header holds. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
   min-height: 100vh;
-  position: relative;
-  overflow-x: hidden;
+  min-height: 100svh;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* ===== SCREENS ===== */
 .screen {
   width: var(--app-width);
   min-height: 100vh;
+  min-height: 100svh;
   position: absolute;
   top: 0;
   left: 0;
@@ -185,6 +192,7 @@ html.split-layout #split-wrap {
   width: calc(var(--sidebar-width) + var(--app-width));
   margin: 0 auto;
   min-height: 100vh;
+  min-height: 100svh;
 }
 html.split-layout #cities-screen {
   position: relative;
@@ -192,6 +200,7 @@ html.split-layout #cities-screen {
   width: var(--sidebar-width);
   flex-shrink: 0;
   min-height: 100vh;
+  min-height: 100svh;
   visibility: visible !important;
   pointer-events: auto !important;
   z-index: 1;
@@ -204,6 +213,7 @@ html.split-layout #detail-screen {
   flex: 1;
   min-width: 0;
   min-height: 100vh;
+  min-height: 100svh;
   visibility: visible !important;
   pointer-events: auto !important;
   z-index: 1;
@@ -228,6 +238,7 @@ html.split-layout #live-canvas {
   display: none;
   height: 100%;
   min-height: 100vh;
+  min-height: 100svh;
   align-items: center;
   justify-content: center;
   text-align: center;
@@ -246,12 +257,14 @@ html.split-layout .city-card.selected {
 }
 
 /* ===== CITIES SCREEN ===== */
-#cities-screen { background: #000; overflow-y: auto; height: 100vh; cursor: grab; user-select: none; scrollbar-width: none; }
-#cities-screen::-webkit-scrollbar { display: none; }
+/* The screen itself no longer scrolls — it is a two-row flex column whose
+   second row is the scroller. The header is therefore outside the scrolling
+   box entirely and cannot move, which removes the dependency on
+   position:sticky (which would not hold on iOS here). */
+#cities-screen { background: #000; overflow: hidden; height: 100vh; height: 100svh; display: flex; flex-direction: column; cursor: grab; user-select: none; }
 
 .cities-top-bar {
-  position: sticky;
-  top: 0;
+  flex: 0 0 auto;
   z-index: 60;
   background: #000;
   padding-bottom: 12px;
@@ -296,6 +309,7 @@ html.split-layout .city-card.selected {
   right: 0;
   min-width: 210px;
   max-height: calc(100vh - 80px);
+  max-height: calc(100svh - 80px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -390,7 +404,17 @@ html.split-layout .city-card.selected {
 .search-result-item .sub { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 2px; }
 
 /* ===== CITY CARDS ===== */
-.city-cards { padding: 4px 16px 24px; }
+/* min-height:0 is required: a flex child defaults to min-height:auto, which
+   refuses to shrink below its content and would push the list past the
+   bottom of the screen instead of scrolling inside it. */
+.city-cards {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 4px 16px 24px;
+}
+.city-cards::-webkit-scrollbar { display: none; }
 
 .city-card {
   border-radius: 16px;
@@ -508,6 +532,7 @@ html.split-layout .city-card.selected {
 /* ===== DETAIL SCREEN ===== */
 #detail-screen {
   height: 100vh;
+  height: 100svh;
   overflow-y: auto;
   overflow-x: hidden;
   cursor: grab;
@@ -521,6 +546,7 @@ html.split-layout .city-card.selected {
   top: 0; left: 50%; transform: translateX(-50%);
   width: var(--app-width);
   height: 100vh;
+  height: 100lvh;
   z-index: 0;
   transition: background 0.8s ease;
 }
@@ -530,6 +556,7 @@ html.split-layout .city-card.selected {
   top: 0; left: 50%; transform: translateX(-50%);
   width: var(--app-width);
   height: 100vh;
+  height: 100lvh;
   pointer-events: none;
   z-index: 1;
 }
@@ -881,7 +908,7 @@ html.split-layout .city-card.selected {
 #delete-confirm-yes { background: #ff453a; color: #fff; }
 
 /* ===== MAP SCREEN ===== */
-#map-screen { background: #0a0a1a; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+#map-screen { background: #0a0a1a; display: flex; flex-direction: column; height: 100vh; height: 100svh; overflow: hidden; }
 #map-screen.active { min-height: unset; }
 .map-header {
   display: flex;

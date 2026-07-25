@@ -623,9 +623,16 @@ function loadCities() {
 function restoreDisplayMode() {
   try {
     var savedDisplay = storageGet(DISPLAY_KEY);
-    // 'phone' was the single legacy phone mode — treat it as Modern now
-    if (savedDisplay === 'phone') savedDisplay = 'phone-modern';
-    var validModes = ['phone-classic', 'phone-modern', 'desktop', 'desktop-portrait', 'desktop-landscape', 'desktop-full'];
+    // Collapse every retired mode onto the three that remain, so a saved
+    // 'desktop-landscape' or 'phone-classic' still restores sensibly.
+    var legacy = { 'phone': 'phone', 'phone-classic': 'phone', 'phone-modern': 'phone',
+                   'desktop': 'desktop', 'desktop-portrait': 'desktop',
+                   'desktop-landscape': 'desktop', 'desktop-full': 'desktop' };
+    if (legacy[savedDisplay]) savedDisplay = legacy[savedDisplay];
+    // Desktop is hidden on handsets, so don't restore it there either —
+    // that would strand the user in a mode they can't switch out of.
+    if (savedDisplay === 'desktop' && isPhoneDevice()) savedDisplay = 'auto';
+    var validModes = ['phone', 'desktop'];
     applyDisplayMode(validModes.includes(savedDisplay) ? savedDisplay : 'auto');
   } catch(e) {}
 }
@@ -907,14 +914,20 @@ var touchDragCard = null;
       if (e.target.closest('.drag-handle')) return;
       if (touchDragCard) return;
       if (Math.abs(e.touches[0].clientY - startY) > 5) didDrag = true;
-      el.scrollTop = startScroll - (e.touches[0].clientY - startY);
+      // Deliberately no scrollTop write here. This listener is passive, so
+      // it never preventDefault()s and iOS is already scrolling this
+      // container natively. Driving scrollTop as well meant two sources
+      // fighting over one offset, which double-scrolled the list and left
+      // position:sticky unable to hold .cities-top-bar in place. The mouse
+      // path above still needs its manual scroll; touch does not.
     }, { passive: true });
     el.addEventListener('touchend', function(e) {
       if (didDrag) e.preventDefault();
       setTimeout(function() { didDrag = false; }, 300);
     }, { passive: false });
   }
-  addDragScroll(document.getElementById('cities-screen'));
+  // #city-cards-list is the scroller now, not #cities-screen.
+  addDragScroll(document.getElementById('city-cards-list'));
   addDragScroll(document.getElementById('detail-screen'));
 
   // Horizontal drag-to-scroll for hourly strip
@@ -945,7 +958,9 @@ var touchDragCard = null;
   var edgeSize = 80, scrollRAF = null;
   var dragSrcIdx = -1, currentDropIdx = -1;
 
-  function getScreen() { return document.getElementById('cities-screen'); }
+  // Scroll container for the city list. Must be the element that actually
+  // scrolls, since the drop-index math mixes its rect with its scrollTop.
+  function getScreen() { return document.getElementById('city-cards-list'); }
   function getAllCards() { return Array.from(document.querySelectorAll('#city-cards-list .city-card')); }
 
   function applyShifts(dropIdx) {
@@ -1174,7 +1189,7 @@ document.addEventListener('click', function(e) {
 // DETAIL SCREEN
 // =========================================================
 async function showDetail(city) {
-  citiesScrollY = document.getElementById('cities-screen').scrollTop;
+  citiesScrollY = document.getElementById('city-cards-list').scrollTop;
   var ds = document.getElementById('detail-screen');
   ds.classList.remove('pane-empty');
   ds.scrollTop = 0;
@@ -1535,21 +1550,17 @@ let lastLiveAnimArgs = null;
 function updateSplitLayoutClass() {
   var wasSplit = document.documentElement.classList.contains('split-layout');
   var isSplit;
-  if (displayMode === 'phone-classic' || displayMode === 'phone-modern') {
+  if (displayMode === 'phone') {
     // Explicit phone override — never split, even on a huge window.
     isSplit = false;
-  } else if (displayMode === 'desktop' || displayMode === 'desktop-portrait' ||
-             displayMode === 'desktop-landscape' || displayMode === 'desktop-full') {
-    // Explicit desktop-family override — always split. If this were left to
-    // the width check below, narrowing the window in Full Display mode
-    // (sidebar + remaining content shrinking together) could drop the
-    // measured content width under 600 and collapse split-layout off,
-    // which then centers a single narrower screen in the full window and
-    // shows as empty gaps on both sides — exactly the bug being fixed here.
+  } else if (displayMode === 'desktop') {
+    // Explicit desktop override — always split, regardless of window size.
     isSplit = true;
   } else {
-    // Auto — genuinely adapt based on real available width.
-    isSplit = getResolvedAppWidth() >= 600;
+    // Auto — measure the tab itself, not the rendered pane. The pane width
+    // tracks the window now, so testing it here would oscillate: pane fills
+    // tab -> split on -> sidebar takes 340px -> pane under 600 -> split off.
+    isSplit = window.innerWidth >= 940;   // 340px sidebar + 600px min pane
   }
   document.documentElement.classList.toggle('split-layout', isSplit);
   if (isSplit && !wasSplit) {
@@ -2097,29 +2108,23 @@ document.getElementById('menuMetric').addEventListener('click', function() { dro
 document.getElementById('menuHybrid').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyUnit('hybrid'); });
 document.getElementById('menuAdvanced').addEventListener('click', function() { dropdownMenu.classList.remove('open'); openAdvancedPanel(); });
 document.getElementById('menuDisplayAuto').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('auto'); });
-document.getElementById('menuDisplayPhoneClassic').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone-classic'); });
-document.getElementById('menuDisplayPhoneModern').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone-modern'); });
+document.getElementById('menuDisplayPhone').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone'); });
 document.getElementById('menuDisplayDesktop').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop'); });
-document.getElementById('menuDisplayDesktopPortrait').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-portrait'); });
-document.getElementById('menuDisplayDesktopLandscape').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-landscape'); });
 
-// ─── Desktop platform detection — gates "Full Display", which only makes
-// sense on a real PC/Mac/Linux window, not a tablet ────────────────────────
-function isDesktopComputer() {
+// ─── Handset detection — "Desktop" is a full-window split layout (sidebar
+// + detail side by side) that has nowhere near enough width to work on a
+// phone, so the option is hidden there. Tablets keep it: an iPad reports no
+// "Mobi" token and genuinely does have the room. ────────────────────────────
+function isPhoneDevice() {
   var ua = navigator.userAgent;
-  if (/iPhone|iPod/.test(ua)) return false;
-  if (/iPad/.test(ua)) return false;
-  // iPadOS 13+ reports itself as "MacIntel" — the only reliable way to tell
-  // it apart from a real Mac is that real Macs report zero touch points.
-  if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return false;
-  if (/Android/.test(ua)) return false;
-  if (/Mobi/.test(ua)) return false;
-  return true;
+  if (/iPhone|iPod/.test(ua)) return true;
+  // Android phones carry "Mobi"; Android tablets deliberately omit it.
+  if (/Android/.test(ua) && /Mobi/.test(ua)) return true;
+  return false;
 }
-if (isDesktopComputer()) {
-  document.getElementById('menuDisplayDesktopFull').style.display = 'flex';
+if (isPhoneDevice()) {
+  document.getElementById('menuDisplayDesktop').style.display = 'none';
 }
-document.getElementById('menuDisplayDesktopFull').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop-full'); });
 
 function applyUnit(mode) {
   unitMode = mode;
@@ -2157,23 +2162,19 @@ function updateChecks() {
 }
 
 function updateDisplayChecks() {
-  ['menuDisplayAuto','menuDisplayPhoneClassic','menuDisplayPhoneModern','menuDisplayDesktop','menuDisplayDesktopPortrait','menuDisplayDesktopLandscape','menuDisplayDesktopFull'].forEach(function(id) {
+  ['menuDisplayAuto','menuDisplayPhone','menuDisplayDesktop'].forEach(function(id) {
     var el = document.getElementById(id); if (el) el.classList.remove('checked');
   });
-  const map = {auto:'menuDisplayAuto', 'phone-classic':'menuDisplayPhoneClassic', 'phone-modern':'menuDisplayPhoneModern', desktop:'menuDisplayDesktop', 'desktop-portrait':'menuDisplayDesktopPortrait', 'desktop-landscape':'menuDisplayDesktopLandscape', 'desktop-full':'menuDisplayDesktopFull'};
+  const map = {auto:'menuDisplayAuto', phone:'menuDisplayPhone', desktop:'menuDisplayDesktop'};
   var el = document.getElementById(map[displayMode]); if (el) el.classList.add('checked');
 }
 
 function applyDisplayMode(mode) {
   displayMode = mode;
   storageSet(DISPLAY_KEY, mode);
-  document.documentElement.classList.remove('display-phone', 'display-phone-classic', 'display-phone-modern', 'display-desktop', 'display-desktop-portrait', 'display-desktop-landscape', 'display-desktop-full');
-  if (mode === 'phone-classic') document.documentElement.classList.add('display-phone-classic');
-  else if (mode === 'phone-modern') document.documentElement.classList.add('display-phone-modern');
+  document.documentElement.classList.remove('display-phone', 'display-desktop');
+  if (mode === 'phone') document.documentElement.classList.add('display-phone');
   else if (mode === 'desktop') document.documentElement.classList.add('display-desktop');
-  else if (mode === 'desktop-portrait') document.documentElement.classList.add('display-desktop-portrait');
-  else if (mode === 'desktop-landscape') document.documentElement.classList.add('display-desktop-landscape');
-  else if (mode === 'desktop-full') document.documentElement.classList.add('display-desktop-full');
   updateDisplayChecks();
   resizeCanvasForAppWidth();
 }
@@ -2250,7 +2251,7 @@ document.getElementById('back-btn').addEventListener('click', function() {
   showScreen('cities-screen');
   // Restore cities scroll position
   requestAnimationFrame(function() {
-    document.getElementById('cities-screen').scrollTop = citiesScrollY;
+    document.getElementById('city-cards-list').scrollTop = citiesScrollY;
   });
 });
 
