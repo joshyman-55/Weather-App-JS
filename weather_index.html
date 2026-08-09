@@ -156,5 +156,45 @@
   </div>
   <button class="adv-apply" id="advApply">Apply</button>
 </div>
+<!-- Day Detail Sheet (tap a row in the 10-day forecast) -->
+<div id="day-detail-backdrop"></div>
+<div id="day-detail-sheet" role="dialog" aria-modal="true" aria-label="Day forecast details">
+  <div class="dd-topbar">
+    <button class="dd-close" id="dd-close" aria-label="Close">&times;</button>
+    <div class="dd-heading">
+      <div class="dd-day" id="dd-day">--</div>
+      <div class="dd-sub"><span id="dd-city"></span> &middot; <span id="dd-date"></span></div>
+    </div>
+    <div class="dd-nav">
+      <button id="dd-prev" aria-label="Previous day">&lsaquo;</button>
+      <button id="dd-next" aria-label="Next day">&rsaquo;</button>
+    </div>
+  </div>
+
+  <div class="dd-body" id="dd-body">
+    <div class="dd-hero">
+      <div class="dd-hero-icon" id="dd-icon"></div>
+      <div class="dd-hero-text">
+        <div class="dd-hero-temps"><span id="dd-hi">--</span><span class="dd-slash">/</span><span id="dd-lo">--</span></div>
+        <div class="dd-hero-cond" id="dd-cond"></div>
+      </div>
+    </div>
+
+    <div class="dd-metrics" id="dd-metrics"></div>
+
+    <div class="dd-chart-box">
+      <div class="dd-chart-head">
+        <span class="dd-chart-title" id="dd-chart-title">Temperature</span>
+        <span class="dd-readout" id="dd-readout"></span>
+      </div>
+      <div class="dd-chart-wrap" id="dd-chart-wrap"></div>
+    </div>
+
+    <div class="dd-summary" id="dd-summary"></div>
+
+    <div class="dd-cards-title">DAILY DETAILS</div>
+    <div class="dd-cards" id="dd-cards"></div>
+  </div>
+</div>
 </body>
 </html>

@@ -313,11 +313,14 @@ html.split-layout .city-card.selected {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   background: #ffffff;
   border-radius: 8px;
   box-shadow: 0 6px 28px rgba(0,0,0,0.40);
   z-index: 9999;
 }
+.dropdown-menu::-webkit-scrollbar { display: none; }
 .dropdown-menu.open { display: block; }
 
 .dropdown-item {
@@ -1241,3 +1244,250 @@ html.split-layout .city-card.selected {
   transition: opacity 0.15s;
 }
 .adv-apply:hover { opacity: 0.88; }
+/* ===== FORECAST ROW → TAPPABLE ===== */
+.forecast-row.tappable {
+  cursor: pointer;
+  border-radius: 8px;
+  padding-left: 4px;
+  padding-right: 2px;
+  margin-left: -4px;
+  margin-right: -2px;
+  transition: background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.forecast-row.tappable:hover,
+.forecast-row.tappable:focus-visible { background: rgba(255,255,255,0.12); outline: none; }
+.forecast-row.tappable:active { background: rgba(255,255,255,0.2); }
+.forecast-chevron {
+  font-size: 17px;
+  line-height: 1;
+  color: rgba(255,255,255,0.4);
+  min-width: 9px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.forecast-row:not(.tappable) .forecast-chevron { visibility: hidden; }
+
+/* ===== DAY DETAIL SHEET ===== */
+body.dd-locked { overflow: hidden; }
+
+#day-detail-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 960;
+}
+#day-detail-backdrop.open { display: block; }
+
+#day-detail-sheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translate(-50%, 100%);
+  /* Matches the frame this sheet sits over exactly — .screen (and the
+     phone-frame background behind it) sizes off the same variable, so the
+     sheet can never be wider or narrower than the "device" it's covering,
+     in any display mode. */
+  width: var(--app-width);
+  max-width: 100vw;
+  height: 92vh;
+  height: 92dvh;
+  background: #14161c;
+  border-radius: 22px 22px 0 0;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+  z-index: 961;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font);
+  color: #fff;
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  overflow: hidden;
+}
+#day-detail-sheet.open { transform: translate(-50%, 0); }
+
+.dd-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.dd-close {
+  background: rgba(255,255,255,0.12);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.dd-heading { flex: 1; min-width: 0; }
+.dd-day { font-size: 18px; font-weight: 600; line-height: 1.2; }
+.dd-sub { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+.dd-nav { display: flex; gap: 6px; flex-shrink: 0; }
+.dd-nav button {
+  background: rgba(255,255,255,0.12);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  padding-bottom: 2px;
+}
+.dd-nav button:disabled { opacity: 0.28; cursor: default; }
+
+.dd-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 16px 32px;
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;    /* old Edge/IE */
+}
+.dd-body::-webkit-scrollbar { display: none; }  /* Chrome/Safari/Edge */
+#day-detail-sheet.dd-slide-left  .dd-body { animation: ddInLeft  0.22s ease; }
+#day-detail-sheet.dd-slide-right .dd-body { animation: ddInRight 0.22s ease; }
+@keyframes ddInLeft  { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+@keyframes ddInRight { from { opacity: 0; transform: translateX(-22px); } to { opacity: 1; transform: none; } }
+
+.dd-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.dd-hero-icon { font-size: 44px; line-height: 1; flex-shrink: 0; }
+.dd-hero-temps { font-size: 34px; font-weight: 300; line-height: 1.1; display: flex; align-items: baseline; gap: 6px; }
+.dd-slash { color: rgba(255,255,255,0.35); font-size: 24px; }
+.dd-hero-cond { font-size: 14px; color: rgba(255,255,255,0.7); margin-top: 3px; }
+
+.dd-metrics {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 14px;
+  scrollbar-width: none;
+}
+.dd-metrics::-webkit-scrollbar { display: none; }
+.dd-chip {
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.75);
+  font-family: var(--font);
+  font-size: 12.5px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.dd-chip.active { background: #fff; color: #14161c; font-weight: 600; border-color: #fff; }
+
+.dd-chart-box {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 12px 10px 8px;
+  margin-bottom: 14px;
+}
+.dd-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 6px 4px;
+  min-height: 20px;
+}
+.dd-chart-title { font-size: 12px; font-weight: 600; letter-spacing: 0.4px; color: rgba(255,255,255,0.7); }
+.dd-readout { font-size: 12.5px; text-align: right; }
+.dd-readout-hint { color: rgba(255,255,255,0.35); font-size: 11px; }
+.dd-readout-time { color: rgba(255,255,255,0.55); margin-right: 6px; }
+.dd-readout-val { color: #fff; font-weight: 600; }
+.dd-chart-wrap { touch-action: pan-y; cursor: crosshair; }
+.dd-chart { width: 100%; height: auto; display: block; }
+.dd-nodata { color: rgba(255,255,255,0.45); font-size: 13px; padding: 24px 8px; text-align: center; }
+
+.dd-summary {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.82);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 13px 14px;
+  margin-bottom: 18px;
+}
+
+.dd-cards-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+.dd-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.dd-card {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  padding: 11px 12px 12px;
+  min-height: 76px;
+}
+.dd-card-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 6px;
+}
+.dd-card-value { font-size: 20px; font-weight: 400; line-height: 1.15; }
+.dd-card-sub { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 4px; line-height: 1.3; }
+
+/* The sheet used to switch to a floating dialog at a raw window-width
+   breakpoint (min-width:700px). That ignores the app's own layout mode:
+   forcing "Display: Phone" on a wide desktop window still has a wide
+   *window*, so the old rule turned the sheet into a desktop dialog that
+   didn't match the 400px phone frame it was supposed to sit over — it hung
+   off both edges instead of covering the simulated screen edge-to-edge.
+   The bottom-sheet default above already tracks var(--app-width), which
+   *is* layout-mode aware (400px in Phone mode, 100vw on a real handset,
+   the full pane width otherwise) — so a real phone, a phone simulated on
+   desktop, and a narrow auto-mode window all correctly get the same
+   full-width bottom sheet with no extra rule needed.
+   Only the split layout (sidebar + detail pane, from "Display: Desktop"
+   or auto-mode ≥940px) genuinely has room beside the sheet for it to float
+   as a centered dialog — and even then it must center on the detail pane,
+   not the whole window, using the same offset trick as .detail-bg. */
+html.split-layout #day-detail-sheet {
+  left: calc(50vw + var(--sidebar-width) / 2);
+  top: 50%;
+  bottom: auto;
+  width: min(var(--app-width), 520px);
+  height: min(88vh, 780px);
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.12);
+  transform: translate(-50%, calc(-50% + 24px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+html.split-layout #day-detail-sheet.open {
+  transform: translate(-50%, -50%);
+  opacity: 1;
+  pointer-events: auto;
+}
+html.split-layout .dd-cards { grid-template-columns: repeat(3, 1fr); }

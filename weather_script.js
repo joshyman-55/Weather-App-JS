@@ -18,6 +18,7 @@ let searchDebounce = null;
 let dragSrcCity = null;
 let editMode = false;
 let displayMode = 'auto';
+let dayDetailData = null;   // weather payload backing the day-detail sheet
 
 const STORAGE_KEY = 'weather_app_cities_v3';
 const UNIT_KEY = 'weather_app_unit_v1';
@@ -70,6 +71,25 @@ const GRAD_BOUNDS = [
   { t:  96, hex: '#ff0000' },  // Hot:      96°F to 122°F
   { t: 123, hex: '#800000' },  // Scorched: >= 123°F
 ];
+
+// GRAD_BOUNDS is tuned to sit as a BACKGROUND behind contrasting text (see
+// tempTextColor(), which picks black/white per category for exactly that).
+// But a few spots use the category color as FOREGROUND — text or a chart
+// line/fill — directly on this app's near-black UI. The graph panel uses the
+// regular band colors across the normal −3°F to 122°F range so the chart
+// matches the rest of the app exactly. Only the two extreme ends keep a
+// lightened stand-in: bitter (#32174d) and scorched (#800000) are dark enough
+// that drawing them on the near-black background made them invisible.
+const GRAD_BOUNDS_FG = [
+  { t: -58, hex: '#b18ae0' },  // Bitter   — lightened violet (bg #32174d is too dark to read)
+  { t:  -3, hex: '#8601af' },  // Frigid   — regular band color
+  { t:  33, hex: '#0000ff' },  // Cold     — regular band color
+  { t:  50, hex: '#00ff00' },  // Chilly   — regular band color
+  { t:  60, hex: '#ffff00' },  // Mild     — regular band color
+  { t:  78, hex: '#ffa500' },  // Warm     — regular band color
+  { t:  96, hex: '#ff0000' },  // Hot      — regular band color
+  { t: 123, hex: '#ff7a7a' },  // Scorched — lightened maroon (bg #800000 is too dark to read)
+];
 function tempColor(f)     { return TEMP_COLORS[tempCategory(f)] || '#888'; }
 function tempTextColor(f) { return TEMP_TEXT[tempCategory(f)] || '#fff'; }
 function toDisplay(f) {
@@ -79,6 +99,17 @@ function toDisplay(f) {
   return val < 0 ? '\u2212' + Math.abs(val) : val;
 }
 function toDisplayStr(f)  { return toDisplay(f) + '\u00b0'; }
+// Same conversion as toDisplay(), but returns the raw number (unrounded,
+// no sign glyph) so callers can do math with it — e.g. finding "every 5
+// degrees" gridlines in whichever unit is currently on screen.
+function toDisplayNum(f) {
+  if (unitMode === 'advanced') return advancedUnits.temp === 'F' ? f : (f - 32) * 5 / 9;
+  return (isFahrenheit && !isHybrid) ? f : (f - 32) * 5 / 9;
+}
+function fromDisplayNum(v) {
+  if (unitMode === 'advanced') return advancedUnits.temp === 'F' ? v : v * 9 / 5 + 32;
+  return (isFahrenheit && !isHybrid) ? v : v * 9 / 5 + 32;
+}
 
 function displayWind(mph) {
   if (unitMode === 'advanced') {
@@ -278,8 +309,8 @@ async function fetchWeatherData(lat, lon) {
   const r = await fetch(
     'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
     '&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m,dew_point_2m,visibility,surface_pressure' +
-    '&hourly=temperature_2m,weather_code,uv_index' +
-    '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max' +
+    '&hourly=temperature_2m,weather_code,uv_index,apparent_temperature,precipitation_probability,precipitation,relative_humidity_2m,wind_speed_10m,wind_direction_10m,visibility,surface_pressure' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant' +
     '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timeformat=iso8601&timezone=auto&forecast_days=10'
   );
   return r.json();
@@ -353,14 +384,61 @@ async function buildWeatherData(wx, aqi) {
     });
   }
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dayFull  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const monFull  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const dailyTime = daily.time || [];
+
+  // Bucket every hourly reading by its local calendar date so each forecast day
+  // carries its own full 24-hour series (used by the tap-a-day detail sheet).
+  const hoursByDate = {};
+  function pick(arr, i, dflt) { return (arr && arr[i] != null) ? arr[i] : dflt; }
+  for (let i = 0; i < hourly.time.length; i++) {
+    const parts = hourly.time[i].split('T');
+    const dateStr = parts[0];
+    const hh = parseInt(parts[1].split(':')[0], 10);
+    if (!hoursByDate[dateStr]) hoursByDate[dateStr] = [];
+    hoursByDate[dateStr].push({
+      hour: hh,
+      time: hh * 100,
+      temp:       pick(hourly.temperature_2m, i, null),
+      feels:      pick(hourly.apparent_temperature, i, null),
+      code:       pick(hourly.weather_code, i, 0),
+      condition:  decodeCode(pick(hourly.weather_code, i, 0)),
+      uvIndex:    pick(hourly.uv_index, i, 0),
+      precipProb: pick(hourly.precipitation_probability, i, 0),
+      precipAmt:  pick(hourly.precipitation, i, 0),
+      humidity:   pick(hourly.relative_humidity_2m, i, null),
+      wind:       pick(hourly.wind_speed_10m, i, null),
+      windDeg:    pick(hourly.wind_direction_10m, i, 0),
+      visibility: pick(hourly.visibility, i, null),
+      pressure:   pick(hourly.surface_pressure, i, null)
+    });
+  }
+
   const forecast = dailyTime.map(function(t, i) {
+    const d = new Date(t + 'T12:00');
+    const hrs = hoursByDate[t] || [];
     return {
-      day: i === 0 ? 'Today' : dayNames[new Date(t+'T12:00').getDay()],
-      min: Math.round((daily.temperature_2m_min && daily.temperature_2m_min[i] != null) ? daily.temperature_2m_min[i] : 0),
-      max: Math.round((daily.temperature_2m_max && daily.temperature_2m_max[i] != null) ? daily.temperature_2m_max[i] : 0),
-      condition: decodeCode((daily.weather_code && daily.weather_code[i] != null) ? daily.weather_code[i] : 0),
-      precipChance: (daily.precipitation_probability_max && daily.precipitation_probability_max[i] != null) ? daily.precipitation_probability_max[i] : 0
+      date: t,
+      day: i === 0 ? 'Today' : dayNames[d.getDay()],
+      dayFull: i === 0 ? 'Today' : dayFull[d.getDay()],
+      dateLabel: monFull[d.getMonth()] + ' ' + d.getDate(),
+      min: Math.round(pick(daily.temperature_2m_min, i, 0)),
+      max: Math.round(pick(daily.temperature_2m_max, i, 0)),
+      feelsMin: pick(daily.apparent_temperature_min, i, null),
+      feelsMax: pick(daily.apparent_temperature_max, i, null),
+      condition: decodeCode(pick(daily.weather_code, i, 0)),
+      precipChance: pick(daily.precipitation_probability_max, i, 0),
+      precipSum: pick(daily.precipitation_sum, i, 0),
+      uvMax: pick(daily.uv_index_max, i, 0),
+      windMax: pick(daily.wind_speed_10m_max, i, null),
+      gustMax: pick(daily.wind_gusts_10m_max, i, null),
+      windDeg: pick(daily.wind_direction_10m_dominant, i, 0),
+      sunrise: sunriseArr && sunriseArr[i] ? fmt12(sunriseArr[i]) : '--',
+      sunset:  sunsetArr  && sunsetArr[i]  ? fmt12(sunsetArr[i])  : '--',
+      sunriseInt: sunriseArr && sunriseArr[i] ? milHour(sunriseArr[i]) : 600,
+      sunsetInt:  sunsetArr  && sunsetArr[i]  ? milHour(sunsetArr[i])  : 2000,
+      hours: hrs
     };
   });
   const uvMatch = hourlyData.find(function(h) { return Math.abs(h.time - currentMilitary) < 100; });
@@ -391,16 +469,18 @@ async function getWeatherForCity(cityName) {
   if (cached && cached.fetchedAt && (Date.now() - cached.fetchedAt) < WEATHER_TTL) {
     return cached;
   }
-  var lat, lon;
+  var lat, lon, cc = null;
   if (cityCoords[cityName]) {
     lat = cityCoords[cityName].lat;
     lon = cityCoords[cityName].lon;
+    cc  = cityCoords[cityName].cc || null;
   } else {
     const results = await geocode(cityName);
     if (!results.length) throw new Error('City not found: ' + cityName);
     lat = results[0].latitude;
     lon = results[0].longitude;
-    cityCoords[cityName] = { lat: lat, lon: lon };
+    cc  = results[0].country_code || null;
+    cityCoords[cityName] = { lat: lat, lon: lon, cc: results[0].country_code || null };
     storageSet(COORDS_KEY, JSON.stringify(cityCoords));
   }
   var wx = null, aqi = 0;
@@ -610,6 +690,7 @@ function loadCities() {
       if (Array.isArray(parsed) && parsed.length > 0) {
         savedCities = parsed;
         migrateOldCities();
+        backfillMissingCountryCodes();
         restoreDisplayMode();
         return;
       }
@@ -617,6 +698,7 @@ function loadCities() {
   } catch (e) {}
   savedCities = DEFAULT_CITIES.slice();
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
+  backfillMissingCountryCodes();
   restoreDisplayMode();
 }
 
@@ -629,9 +711,6 @@ function restoreDisplayMode() {
                    'desktop': 'desktop', 'desktop-portrait': 'desktop',
                    'desktop-landscape': 'desktop', 'desktop-full': 'desktop' };
     if (legacy[savedDisplay]) savedDisplay = legacy[savedDisplay];
-    // Desktop is hidden on handsets, so don't restore it there either —
-    // that would strand the user in a mode they can't switch out of.
-    if (savedDisplay === 'desktop' && isPhoneDevice()) savedDisplay = 'auto';
     var validModes = ['phone', 'desktop'];
     applyDisplayMode(validModes.includes(savedDisplay) ? savedDisplay : 'auto');
   } catch(e) {}
@@ -681,10 +760,30 @@ function migrateOneCity(cityName) {
   if (cityCoords[cityName]) return;
   geocode(cityName).then(function(results) {
     if (results.length && !cityCoords[cityName]) {
-      cityCoords[cityName] = { lat: results[0].latitude, lon: results[0].longitude };
+      cityCoords[cityName] = { lat: results[0].latitude, lon: results[0].longitude, cc: results[0].country_code || null };
       storageSet(COORDS_KEY, JSON.stringify(cityCoords));
     }
   }).catch(function() {});
+}
+
+// migrateOneCity() only fills in coordinates for a city with NO stored entry
+// at all — it bails out immediately if one already exists, even if that
+// entry predates country-code tracking and is missing `cc`. This does the
+// narrower job the other function skips — re-geocode just to recover the
+// missing `cc`, leaving good lat/lon alone.
+function backfillMissingCountryCodes() {
+  savedCities.forEach(function(city) {
+    var entry = cityCoords[city];
+    if (!entry || entry.cc || entry.lat == null) return;
+    geocode(city).then(function(results) {
+      if (!results.length) return;
+      // Re-check in case something else updated this city while we waited.
+      var current = cityCoords[city];
+      if (!current || current.cc) return;
+      current.cc = results[0].country_code || null;
+      storageSet(COORDS_KEY, JSON.stringify(cityCoords));
+    }).catch(function() {});
+  });
 }
 function saveCities() {
   storageSet(STORAGE_KEY, JSON.stringify(savedCities));
@@ -694,13 +793,13 @@ function nonLocCityCount() {
   const locCity = storageGet(LOC_KEY);
   return savedCities.filter(function(c) { return c !== locCity; }).length;
 }
-function addCity(name, lat, lon) {
+function addCity(name, lat, lon, cc) {
   if (!savedCities.some(function(c) { return c.toLowerCase() === name.toLowerCase(); })) {
     if (nonLocCityCount() >= CITY_LIMIT) return false;
     savedCities.push(name); saveCities();
   }
   if (lat != null && lon != null) {
-    cityCoords[name] = { lat: lat, lon: lon };
+    cityCoords[name] = { lat: lat, lon: lon, cc: cc || null };
     storageSet(COORDS_KEY, JSON.stringify(cityCoords));
   }
   return true;
@@ -878,12 +977,16 @@ var touchDragCard = null;
 // =========================================================
 (function() {
   function addDragScroll(el) {
+    if (!el) return;   // guards late-inserted panels (see call site below)
     var startY = 0, startScroll = 0, isDragging = false, didDrag = false;
     el.addEventListener('mousedown', function(e) {
       if (e.button !== 0) return;
       if (e.target.closest('.drag-handle')) return;
       if (e.target.closest('input, button, select, textarea, a')) return;
       if (e.target.closest('.cities-top-bar, #search-results')) return;
+      // Chart scrubbing and the metric-chip strip own their own drag/scroll —
+      // don't let the panel's vertical drag-scroll steal those gestures.
+      if (e.target.closest('#dd-chart-wrap, .dd-metrics')) return;
       if (e.clientX > el.getBoundingClientRect().right - 15) return;
       isDragging = true; didDrag = false;
       startY = e.clientY;
@@ -929,6 +1032,15 @@ var touchDragCard = null;
   // #city-cards-list is the scroller now, not #cities-screen.
   addDragScroll(document.getElementById('city-cards-list'));
   addDragScroll(document.getElementById('detail-screen'));
+  // The day-detail sheet is markup appended near the end of <body>, AFTER
+  // this <script> tag runs — so at this point in the file it doesn't exist
+  // in the DOM yet and getElementById would return null.
+  // Defer their wiring until the document has finished parsing.
+  function wireLateDragScroll() {
+    addDragScroll(document.getElementById('dd-body'));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireLateDragScroll);
+  else wireLateDragScroll();
 
   // Horizontal drag-to-scroll for hourly strip
   (function() {
@@ -1157,7 +1269,7 @@ document.getElementById('city-search').addEventListener('input', function() {
               el2.classList.add('visible');
               return;
             }
-            addCity(displayName, r.latitude, r.longitude);
+            addCity(displayName, r.latitude, r.longitude, r.country_code);
             document.getElementById('city-search').value = '';
             hideSearch();
             renderCitiesScreen();
@@ -1354,6 +1466,12 @@ function fmtMil(mil) {
 // FORECAST
 // =========================================================
 function renderForecast(data) {
+  dayDetailData = data;
+  // Keep an open day-detail sheet in sync with unit changes and refreshes
+  var ddSheet = document.getElementById('day-detail-sheet');
+  if (ddSheet && ddSheet.classList.contains('open') && data.forecast && data.forecast[ddIndex]) {
+    renderDayDetail();
+  }
   const rows = document.getElementById('forecast-rows');
   rows.innerHTML = '';
   if (data.isFallback || !data.forecast || !data.forecast.length) {
@@ -1400,7 +1518,21 @@ function renderForecast(data) {
         '<div class="forecast-bar" style="background:' + gradient + '"></div>' +
         dotHtml +
       '</div>' +
-      '<div class="forecast-high">' + dMax + '&deg;</div>';
+      '<div class="forecast-high">' + dMax + '&deg;</div>' +
+      '<div class="forecast-chevron">&rsaquo;</div>';
+
+    // Tap a day to open its full-day detail sheet (Apple Weather behaviour)
+    if (day.hours && day.hours.length) {
+      row.classList.add('tappable');
+      row.dataset.idx = i;
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-label', day.dayFull + ' forecast details');
+      row.addEventListener('click', function() { openDayDetail(parseInt(this.dataset.idx, 10)); });
+      row.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDayDetail(parseInt(this.dataset.idx, 10)); }
+      });
+    }
     rows.appendChild(row);
   }
 }
@@ -1417,6 +1549,16 @@ function catColor(tempF) {
   let col = GRAD_BOUNDS[0].hex;
   for (let i = 0; i < GRAD_BOUNDS.length; i++) {
     if (tempF >= GRAD_BOUNDS[i].t) col = GRAD_BOUNDS[i].hex;
+  }
+  return col;
+}
+// Same lookup as catColor(), but returns the lightened GRAD_BOUNDS_FG palette
+// — use this wherever the temperature color is a text/stroke color sitting
+// directly on the app's dark background, not a colored badge/bar background.
+function catColorFg(tempF) {
+  let col = GRAD_BOUNDS_FG[0].hex;
+  for (let i = 0; i < GRAD_BOUNDS_FG.length; i++) {
+    if (tempF >= GRAD_BOUNDS_FG[i].t) col = GRAD_BOUNDS_FG[i].hex;
   }
   return col;
 }
@@ -2111,21 +2253,6 @@ document.getElementById('menuDisplayAuto').addEventListener('click', function() 
 document.getElementById('menuDisplayPhone').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('phone'); });
 document.getElementById('menuDisplayDesktop').addEventListener('click', function() { dropdownMenu.classList.remove('open'); applyDisplayMode('desktop'); });
 
-// ─── Handset detection — "Desktop" is a full-window split layout (sidebar
-// + detail side by side) that has nowhere near enough width to work on a
-// phone, so the option is hidden there. Tablets keep it: an iPad reports no
-// "Mobi" token and genuinely does have the room. ────────────────────────────
-function isPhoneDevice() {
-  var ua = navigator.userAgent;
-  if (/iPhone|iPod/.test(ua)) return true;
-  // Android phones carry "Mobi"; Android tablets deliberately omit it.
-  if (/Android/.test(ua) && /Mobi/.test(ua)) return true;
-  return false;
-}
-if (isPhoneDevice()) {
-  document.getElementById('menuDisplayDesktop').style.display = 'none';
-}
-
 function applyUnit(mode) {
   unitMode = mode;
   storageSet(UNIT_KEY, mode);
@@ -2272,11 +2399,16 @@ const OWM_KEY = '4b9e4b4e81cc1f2a8d5d3f7b2e9c1a0d';
 // (aqiColor and aqiLabel defined earlier — see top of map section)
 
 function buildTempLegend() {
+  // Legend spans the actual recorded world extremes — Vostok Station,
+  // Antarctica (-128.6°F / -89.2°C) to Death Valley (134°F / 56.7°C) —
+  // rather than an arbitrary cutoff, so the bar's ends mean something.
   var unit = (isFahrenheit && !isHybrid) ? '°F' : '°C';
-  var lo  = (isFahrenheit && !isHybrid) ? '-58°' : '-50°';
-  var mid = (isFahrenheit && !isHybrid) ? '32°'  : '0°';
-  var hi  = (isFahrenheit && !isHybrid) ? '123°' : '51°';
-  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 21.5%,#0000ff 50.3%,#00ff00 59.7%,#ffff00 65.2%,#ffa500 75.1%,#ff0000 85.1%,#800000 100%)';
+  var lo  = (isFahrenheit && !isHybrid) ? '-128°' : '-89°';
+  var mid = (isFahrenheit && !isHybrid) ? '32°'   : '0°';
+  var hi  = (isFahrenheit && !isHybrid) ? '134°'  : '57°';
+  // Stops recomputed for the -128..134 domain (span 262°F), placing each
+  // color's start at its real band boundary (-3, 33, 50, 60, 78, 96, 123).
+  var grad = 'linear-gradient(to right,#32174d 0%,#8601af 47.7%,#0000ff 61.5%,#00ff00 67.9%,#ffff00 71.8%,#ffa500 78.6%,#ff0000 85.5%,#800000 95.8%)';
   return '<div class="map-legend-title">Temperature (' + unit + ')</div>' +
     '<div class="map-legend-bar"><div class="map-legend-gradient" style="background:' + grad + '"></div></div>' +
     '<div class="map-legend-labels"><span class="map-legend-label">' + lo + '</span><span class="map-legend-label">' + mid + '</span><span class="map-legend-label">' + hi + '</span></div>';
@@ -2549,3 +2681,614 @@ renderCitiesScreen();
 setInterval(function() {
   renderCitiesScreen();
 }, 5 * 60 * 1000);
+
+// =========================================================
+// DAY DETAIL SHEET  — tap a row in the 10-day forecast
+// Mirrors Apple Weather: per-day hourly chart, metric switcher,
+// daily summary and a full details grid. Swipe / arrows move
+// between days without closing the sheet.
+// =========================================================
+var ddIndex         = 0;
+var ddMetric        = 'conditions';
+var ddScrubIdx      = null;
+var ddTouchX        = null;
+var ddTouchY        = null;
+
+const DD_METRICS = [
+  { id:'conditions', label:'Conditions' },
+  { id:'precip',     label:'Precipitation' },
+  { id:'uv',         label:'UV Index' },
+  { id:'wind',       label:'Wind' },
+  { id:'feels',      label:'Feels Like' },
+  { id:'humidity',   label:'Humidity' },
+  { id:'visibility', label:'Visibility' },
+  { id:'pressure',   label:'Pressure' }
+];
+
+function ddPressure(hpa) {
+  if (hpa == null) return '--';
+  var adv = displayPressure(hpa);
+  if (adv) return adv;
+  return isFahrenheit && !isHybrid ? (hpa * 0.02953).toFixed(2) + ' inHg' : Math.round(hpa) + ' hPa';
+}
+function ddPressureShort(hpa) {
+  if (hpa == null) return '--';
+  if (unitMode === 'advanced') return displayPressure(hpa).split(' ')[0];
+  return isFahrenheit && !isHybrid ? (hpa * 0.02953).toFixed(2) : String(Math.round(hpa));
+}
+
+// Per-metric plumbing: how to read a value off an hour, how to draw it,
+// how to label it, and what colour it should be.
+// Precipitation-chance color ramp: pale blue at low probability, deepening
+// through blue and into indigo/violet at high probability — the same
+// intensity-band idea as the temperature gradient, just for rain chance
+// instead of degrees. Each bar gets its own color instead of one flat blue.
+const PRECIP_BOUNDS = [
+  { v:   0, hex: '#bfe3ff' },  // Slight chance — pale sky blue
+  { v:  25, hex: '#6ec3ff' },  // Light blue
+  { v:  50, hex: '#2f8ce0' },  // Medium blue
+  { v:  75, hex: '#1f5fc4' },  // Deep blue
+  { v: 100, hex: '#5b3fd6' },  // Indigo/violet — near-certain
+];
+function precipColor(pct) {
+  var v = Math.max(0, Math.min(100, pct == null ? 0 : pct));
+  for (var i = 0; i < PRECIP_BOUNDS.length - 1; i++) {
+    var a = PRECIP_BOUNDS[i], b = PRECIP_BOUNDS[i + 1];
+    if (v >= a.v && v <= b.v) {
+      var t = (v - a.v) / (b.v - a.v);
+      return lerpHex(a.hex, b.hex, t);
+    }
+  }
+  return PRECIP_BOUNDS[PRECIP_BOUNDS.length - 1].hex;
+}
+
+function ddMetricConfig(id) {
+  switch (id) {
+    case 'precip': return {
+      title: 'Chance of Precipitation', type: 'bar',
+      get: function(h) { return h.precipProb; },
+      fmt: function(v) { return Math.round(v) + '%'; },
+      axis: function(v) { return Math.round(v) + '%'; },
+      color: function(v) { return precipColor(v); },
+      min: 0, max: 100
+    };
+    case 'uv': return {
+      title: 'UV Index', type: 'bar',
+      get: function(h) { return h.uvIndex; },
+      fmt: function(v) { return Math.round(v) + ' \u00b7 ' + uvStatus(Math.round(v)).label; },
+      axis: function(v) { return String(Math.round(v)); },
+      color: function(v) { return uvStatus(Math.round(v)).color; },
+      min: 0, max: null
+    };
+    case 'wind': return {
+      title: 'Wind Speed', type: 'line',
+      get: function(h) { return h.wind; },
+      fmt: function(v, h) { return compassDir(h ? h.windDeg : 0) + ' ' + displayWind(Math.round(v)); },
+      axis: function(v) { return displayWind(Math.round(v)).split(' ')[0]; },
+      color: function() { return '#7fe3c0'; },
+      min: 0, max: null
+    };
+    case 'feels': return {
+      title: 'Feels Like', type: 'line', isTemp: true,
+      get: function(h) { return h.feels; },
+      fmt: function(v) { return toDisplayStr(Math.round(v)); },
+      axis: function(v) { return toDisplayStr(Math.round(v)); },
+      color: function(v) { return catColorFg(v); },
+      min: null, max: null
+    };
+    case 'humidity': return {
+      title: 'Humidity', type: 'line',
+      get: function(h) { return h.humidity; },
+      fmt: function(v) { return Math.round(v) + '%'; },
+      axis: function(v) { return Math.round(v) + '%'; },
+      color: function() { return '#6fc3ff'; },
+      min: 0, max: 100
+    };
+    case 'visibility': return {
+      title: 'Visibility', type: 'line',
+      get: function(h) { return h.visibility; },
+      fmt: function(v) { return displayVis(v); },
+      axis: function(v) { return displayVis(v).split(' ')[0]; },
+      color: function() { return '#c3b5ff'; },
+      min: 0, max: null
+    };
+    case 'pressure': return {
+      title: 'Pressure', type: 'line',
+      get: function(h) { return h.pressure; },
+      fmt: function(v) { return ddPressure(v); },
+      axis: function(v) { return ddPressureShort(v); },
+      color: function() { return '#ffd58a'; },
+      min: null, max: null
+    };
+    default: return {
+      title: 'Temperature', type: 'line', isTemp: true,
+      get: function(h) { return h.temp; },
+      fmt: function(v, h) { return toDisplayStr(Math.round(v)) + (h && h.condition ? ' \u00b7 ' + h.condition : ''); },
+      axis: function(v) { return toDisplayStr(Math.round(v)); },
+      color: function(v) { return catColorFg(v); },
+      min: null, max: null
+    };
+  }
+}
+
+function openDayDetail(idx) {
+  if (!dayDetailData || !dayDetailData.forecast || !dayDetailData.forecast[idx]) return;
+  ddIndex = idx;
+  ddScrubIdx = null;
+  renderDayDetail();
+  var sheet = document.getElementById('day-detail-sheet');
+  var back  = document.getElementById('day-detail-backdrop');
+  back.classList.add('open');
+  sheet.classList.add('open');
+  sheet.scrollTop = 0;
+  document.body.classList.add('dd-locked');
+  // The sheet may not have been laid out when we first drew; re-measure now.
+  requestAnimationFrame(function() { requestAnimationFrame(ddRenderChartOnly); });
+  setTimeout(function() { document.getElementById('dd-close').focus(); }, 60);
+}
+
+function closeDayDetail() {
+  document.getElementById('day-detail-sheet').classList.remove('open');
+  document.getElementById('day-detail-backdrop').classList.remove('open');
+  document.body.classList.remove('dd-locked');
+  ddScrubIdx = null;
+}
+
+function ddStep(delta) {
+  var f = dayDetailData && dayDetailData.forecast;
+  if (!f) return;
+  var next = ddIndex + delta;
+  if (next < 0 || next >= f.length) return;
+  ddIndex = next;
+  ddScrubIdx = null;
+  var sheet = document.getElementById('day-detail-sheet');
+  sheet.classList.add(delta > 0 ? 'dd-slide-left' : 'dd-slide-right');
+  setTimeout(function() { sheet.classList.remove('dd-slide-left', 'dd-slide-right'); }, 220);
+  renderDayDetail();
+}
+
+function ddHourLabel(h) {
+  if (h === 0)  return '12AM';
+  if (h === 12) return '12PM';
+  return (h < 12 ? h + 'AM' : (h - 12) + 'PM');
+}
+
+// ---------- Chart ----------
+// The SVG viewBox is measured from the container so one user unit == one CSS
+// pixel on whatever device is showing it. That keeps label and stroke sizes
+// identical on a phone and an iPad instead of scaling a fixed 360-wide box up.
+var ddGeom = null;
+
+function ddChartBox() {
+  var wrap = document.getElementById('dd-chart-wrap');
+  var w = wrap ? Math.round(wrap.clientWidth) : 0;
+  if (!w || w < 60) w = 330;                       // pre-layout fallback
+  w = Math.max(280, Math.min(w, 900));
+  var h = Math.round(Math.min(250, Math.max(165, 100 + w * 0.22)));
+  return {
+    W: w, H: h,
+    x0: 34, x1: w - 10,
+    yTop: 30, yBot: h - 44
+  };
+}
+
+function ddChartSVG(day, cfg) {
+  var hrs = day.hours || [];
+  var vals = hrs.map(cfg.get);
+  var usable = vals.filter(function(v) { return v != null && !isNaN(v); });
+  if (!usable.length) return '<div class="dd-nodata">No hourly data for this metric.</div>';
+
+  var lo = cfg.min != null ? cfg.min : Math.min.apply(null, usable);
+  var hi = cfg.max != null ? cfg.max : Math.max.apply(null, usable);
+  if (cfg.id === 'uv' && hi < 11) hi = 11;
+  if (hi - lo < 1e-6) { hi = lo + 1; }
+  var pad = (hi - lo) * 0.15;
+  if (cfg.min == null) lo -= pad;
+  if (cfg.max == null) hi += pad;
+
+  var box = ddChartBox();
+  var W = box.W, H = box.H, x0 = box.x0, x1 = box.x1, yTop = box.yTop, yBot = box.yBot;
+  var n = hrs.length;
+  var span = x1 - x0;
+  function xAt(i) { return n <= 1 ? x0 : x0 + (i / (n - 1)) * span; }
+  function bandX(i) { return x0 + (i / n) * span; }
+  var bw = span / Math.max(n, 1);
+  function yAt(v) { return yBot - ((v - lo) / (hi - lo)) * (yBot - yTop); }
+
+  ddGeom = { W: W, H: H, x0: x0, x1: x1, yTop: yTop, yBot: yBot, n: n, lo: lo, hi: hi, type: cfg.type };
+
+  var svg = '<svg class="dd-chart" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">';
+
+  // night shading before sunrise / after sunset
+  var sr = Math.floor(day.sunriseInt / 100) + (day.sunriseInt % 100) / 60;
+  var ss = Math.floor(day.sunsetInt / 100) + (day.sunsetInt % 100) / 60;
+  var srX = x0 + (sr / 24) * span, ssX = x0 + (ss / 24) * span;
+  svg += '<rect x="' + x0 + '" y="' + yTop + '" width="' + Math.max(0, srX - x0) + '" height="' + (yBot - yTop) + '" fill="rgba(0,0,0,0.22)"/>';
+  svg += '<rect x="' + ssX + '" y="' + yTop + '" width="' + Math.max(0, x1 - ssX) + '" height="' + (yBot - yTop) + '" fill="rgba(0,0,0,0.22)"/>';
+
+  // gridlines + axis labels.
+  // Temperature charts (°F and °C alike) get a tick every 5 display-degrees
+  // instead of 3 fixed stops — 3 stops could skip right over a narrow band
+  // (chilly is only 10° wide) without ever putting a label near it. Every
+  // other metric keeps the simple lo/mid/hi treatment.
+  if (cfg.isTemp) {
+    var loD = toDisplayNum(lo), hiD = toDisplayNum(hi);
+    var dMin = Math.min(loD, hiD), dMax = Math.max(loD, hiD);
+    var first = Math.ceil(dMin / 5) * 5;
+    for (var gv = first; gv <= dMax; gv += 5) {
+      var fVal = fromDisplayNum(gv);
+      var t = (fVal - lo) / (hi - lo);
+      var y = yBot - t * (yBot - yTop);
+      svg += '<line x1="' + x0 + '" y1="' + y.toFixed(2) + '" x2="' + x1 + '" y2="' + y.toFixed(2) + '" stroke="rgba(255,255,255,0.13)" stroke-width="0.7"/>';
+      svg += '<text x="' + (x0 - 6) + '" y="' + (y + 3.5).toFixed(2) + '" text-anchor="end" font-size="10" fill="rgba(255,255,255,0.5)" font-family="Roboto,sans-serif">' + cfg.axis(fVal) + '</text>';
+    }
+  } else {
+    [0, 0.5, 1].forEach(function(t) {
+      var y = yBot - t * (yBot - yTop);
+      var v = lo + t * (hi - lo);
+      svg += '<line x1="' + x0 + '" y1="' + y + '" x2="' + x1 + '" y2="' + y + '" stroke="rgba(255,255,255,0.13)" stroke-width="0.7"/>';
+      svg += '<text x="' + (x0 - 6) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="10" fill="rgba(255,255,255,0.5)" font-family="Roboto,sans-serif">' + cfg.axis(v) + '</text>';
+    });
+  }
+
+  if (cfg.type === 'bar') {
+    for (var i = 0; i < n; i++) {
+      var v = vals[i];
+      if (v == null || isNaN(v)) continue;
+      var y = yAt(v);
+      var hgt = Math.max(v > 0 ? 1.5 : 0, yBot - y);
+      svg += '<rect x="' + (bandX(i) + bw * 0.18).toFixed(2) + '" y="' + (yBot - hgt).toFixed(2) +
+             '" width="' + (bw * 0.64).toFixed(2) + '" height="' + hgt.toFixed(2) +
+             '" rx="' + Math.min(1.6, bw * 0.3).toFixed(2) + '" fill="' + cfg.color(v) + '" opacity="0.9"/>';
+    }
+  } else {
+    // Area fill and line, both colored per-piece rather than one color per
+    // hour. A single averaged color per hour-segment meant a fast swing —
+    // say 49° to 61° in one hour — would average to 55° and render as one
+    // solid "chilly" stroke, even though the line actually crosses cold,
+    // chilly, AND mild. It also meant a segment that peaks exactly at a
+    // boundary (say the day's high lands right on 123°, the scorched
+    // cutoff) never got that color: the average of any sub-range ending AT
+    // 123 is always slightly below 123, so it kept reading as "hot". The
+    // fix is to split each hour-segment exactly at the band boundaries it
+    // crosses (-3°, 33°, 50°, 60°, 78°, 96°, 123°) rather than at fixed
+    // widths — every resulting piece then sits entirely inside one band,
+    // so coloring it by its own average is exact, not diluted.
+    var TEMP_CUT_POINTS = [-3, 33, 50, 60, 78, 96, 123];
+    function segCuts(a, b) {
+      var cuts = [a];
+      if (a !== b) {
+        var lo2 = Math.min(a, b), hi2 = Math.max(a, b);
+        var crossed = TEMP_CUT_POINTS.filter(function(t) { return t > lo2 && t < hi2; });
+        crossed.sort(function(x, y) { return a < b ? x - y : y - x; });
+        cuts = cuts.concat(crossed);
+      }
+      cuts.push(b);
+      return cuts;
+    }
+    for (var i = 0; i < n - 1; i++) {
+      var a = vals[i], b = vals[i + 1];
+      if (a == null || b == null || isNaN(a) || isNaN(b)) continue;
+      var xA = xAt(i), xB = xAt(i + 1);
+      var cuts = cfg.isTemp ? segCuts(a, b) : [a, b];
+      for (var c = 0; c < cuts.length - 1; c++) {
+        var v0 = cuts[c], v1 = cuts[c + 1];
+        var t0 = b === a ? 0 : (v0 - a) / (b - a), t1 = b === a ? 1 : (v1 - a) / (b - a);
+        var sx0 = xA + (xB - xA) * t0, sx1 = xA + (xB - xA) * t1;
+        var sy0 = yAt(v0), sy1 = yAt(v1);
+        var segColor = cfg.color((v0 + v1) / 2);
+        svg += '<polygon points="' + sx0.toFixed(2) + ',' + yBot + ' ' +
+               sx0.toFixed(2) + ',' + sy0.toFixed(2) + ' ' +
+               sx1.toFixed(2) + ',' + sy1.toFixed(2) + ' ' +
+               sx1.toFixed(2) + ',' + yBot +
+               '" fill="' + segColor + '" opacity="0.16"/>';
+      }
+    }
+    // colour-graded segments
+    for (var i = 0; i < n - 1; i++) {
+      var a = vals[i], b = vals[i + 1];
+      if (a == null || b == null || isNaN(a) || isNaN(b)) continue;
+      var xA = xAt(i), xB = xAt(i + 1);
+      var cuts = cfg.isTemp ? segCuts(a, b) : [a, b];
+      for (var c = 0; c < cuts.length - 1; c++) {
+        var v0 = cuts[c], v1 = cuts[c + 1];
+        var t0 = b === a ? 0 : (v0 - a) / (b - a), t1 = b === a ? 1 : (v1 - a) / (b - a);
+        var sx0 = xA + (xB - xA) * t0, sx1 = xA + (xB - xA) * t1;
+        svg += '<line x1="' + sx0.toFixed(2) + '" y1="' + yAt(v0).toFixed(2) +
+               '" x2="' + sx1.toFixed(2) + '" y2="' + yAt(v1).toFixed(2) +
+               '" stroke="' + cfg.color((v0 + v1) / 2) + '" stroke-width="2.6" stroke-linecap="round"/>';
+      }
+    }
+    // mark the day's peak and trough
+    var maxI = -1, minI = -1;
+    for (var i = 0; i < n; i++) {
+      if (vals[i] == null || isNaN(vals[i])) continue;
+      if (maxI < 0 || vals[i] > vals[maxI]) maxI = i;
+      if (minI < 0 || vals[i] < vals[minI]) minI = i;
+    }
+    [maxI, minI].forEach(function(mi, k) {
+      if (mi < 0) return;
+      var mx = xAt(mi), my = yAt(vals[mi]);
+      svg += '<circle cx="' + mx.toFixed(2) + '" cy="' + my.toFixed(2) + '" r="3" fill="#fff"/>';
+      var ty = k === 0 ? my - 8 : my + 14;
+      var anchor = mx > W - 48 ? 'end' : (mx < 48 ? 'start' : 'middle');
+      svg += '<text x="' + mx.toFixed(2) + '" y="' + ty.toFixed(2) + '" text-anchor="' + anchor +
+             '" font-size="11" font-weight="600" fill="#fff" font-family="Roboto,sans-serif">' + cfg.axis(vals[mi]) + '</text>';
+    });
+  }
+
+  // "now" marker on today
+  if (ddIndex === 0 && dayDetailData.currentMilitary != null) {
+    var nowH = Math.floor(dayDetailData.currentMilitary / 100) + (dayDetailData.currentMilitary % 100) / 60;
+    var nx = x0 + (nowH / 24) * span;
+    svg += '<line x1="' + nx.toFixed(2) + '" y1="' + yTop + '" x2="' + nx.toFixed(2) + '" y2="' + yBot +
+           '" stroke="rgba(255,255,255,0.75)" stroke-width="1" stroke-dasharray="2 2"/>';
+    svg += '<text x="' + nx.toFixed(2) + '" y="' + (yTop - 6) + '" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-family="Roboto,sans-serif">Now</text>';
+  }
+
+  // scrub indicator (hidden until the user drags)
+  svg += '<g id="dd-scrub" style="display:none">' +
+         '<line id="dd-scrub-line" x1="0" y1="' + yTop + '" x2="0" y2="' + yBot + '" stroke="#fff" stroke-width="1"/>' +
+         '<circle id="dd-scrub-dot" cx="0" cy="0" r="3.4" fill="#fff" stroke="rgba(0,0,0,0.4)" stroke-width="0.8"/>' +
+         '</g>';
+
+  // Hour labels: as many as fit. Narrow phone -> every 3h, wide iPad -> hourly.
+  var step = Math.max(1, Math.ceil((n * 38) / Math.max(1, x1 - x0)));
+  if (step === 5) step = 6;                       // 5 doesn't divide 24 evenly
+  if (step > 6) step = 6;
+  for (var i = 0; i < n; i++) {
+    if (hrs[i].hour % step !== 0) continue;
+    var lx = cfg.type === 'bar' ? bandX(i) + bw / 2 : xAt(i);
+    svg += '<text x="' + lx.toFixed(2) + '" y="' + (yBot + 18) + '" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)" font-family="Roboto,sans-serif">' + ddHourLabel(hrs[i].hour) + '</text>';
+  }
+
+  svg += '</svg>';
+  return svg;
+}
+
+// ---------- Summary sentence ----------
+function ddSummary(day, prev) {
+  var parts = [];
+  var cond = (day.condition || '').toLowerCase();
+  var lead;
+  if (/thunder|storm/.test(cond))        lead = 'Thunderstorms are expected';
+  else if (/snow|sleet|blizzard/.test(cond)) lead = 'Snow is expected';
+  else if (/rain|shower|drizzle/.test(cond)) lead = 'Rain is expected';
+  else if (/fog|haze|mist/.test(cond))   lead = 'Foggy conditions';
+  else if (/overcast|cloud/.test(cond))  lead = 'Cloudy conditions';
+  else                                    lead = 'Clear conditions';
+  parts.push(lead + ' with a high of ' + toDisplayStr(day.max) + ' and a low of ' + toDisplayStr(day.min) + '.');
+
+  if (day.precipChance >= 20) {
+    parts.push('There is a ' + Math.round(day.precipChance) + '% chance of precipitation' +
+      (day.precipSum > 0.005 ? ', around ' + displayPrecip(day.precipSum) + ' in total' : '') + '.');
+  }
+  if (prev) {
+    var diff = day.max - prev.max;
+    if (Math.abs(diff) >= 2) {
+      var mag = Math.abs(unitMode === 'advanced'
+        ? (advancedUnits.temp === 'F' ? diff : diff * 5 / 9)
+        : ((isFahrenheit && !isHybrid) ? diff : diff * 5 / 9));
+      parts.push('The high will be about ' + Math.round(mag) + '\u00b0 ' +
+        (diff > 0 ? 'warmer' : 'cooler') + ' than ' + (prev.day === 'Today' ? 'today' : prev.dayFull) + '.');
+    }
+  }
+  if (day.windMax != null && day.windMax >= 15) {
+    parts.push('Winds up to ' + displayWind(Math.round(day.windMax)) + ' from the ' + compassDir(day.windDeg) + '.');
+  }
+  return parts.join(' ');
+}
+
+// ---------- Detail cards ----------
+function ddCard(label, value, sub) {
+  return '<div class="dd-card"><div class="dd-card-label">' + label + '</div>' +
+         '<div class="dd-card-value">' + value + '</div>' +
+         (sub ? '<div class="dd-card-sub">' + sub + '</div>' : '') + '</div>';
+}
+
+function ddDetailCards(day) {
+  var hrs = day.hours || [];
+  function avg(fn) {
+    var t = 0, c = 0;
+    hrs.forEach(function(h) { var v = fn(h); if (v != null && !isNaN(v)) { t += v; c++; } });
+    return c ? t / c : null;
+  }
+  var humAvg  = avg(function(h) { return h.humidity; });
+  var visAvg  = avg(function(h) { return h.visibility; });
+  var presAvg = avg(function(h) { return h.pressure; });
+  var uv = uvStatus(Math.round(day.uvMax || 0));
+
+  var html = '';
+  html += ddCard('High / Low', toDisplayStr(day.max) + ' / ' + toDisplayStr(day.min), day.condition);
+  html += ddCard('Precipitation', Math.round(day.precipChance) + '%', 'Chance \u00b7 ' + displayPrecip(day.precipSum || 0) + ' total');
+  html += ddCard('UV Index', String(Math.round(day.uvMax || 0)), uv.label + ' at peak');
+  html += ddCard('Wind', day.windMax != null ? displayWind(Math.round(day.windMax)) : '--',
+                 compassDir(day.windDeg) + (day.gustMax != null ? ' \u00b7 gusts ' + displayWind(Math.round(day.gustMax)) : ''));
+  html += ddCard('Feels Like', day.feelsMax != null ? toDisplayStr(Math.round(day.feelsMax)) : '--',
+                 day.feelsMin != null ? 'Low ' + toDisplayStr(Math.round(day.feelsMin)) : '');
+  html += ddCard('Humidity', humAvg != null ? Math.round(humAvg) + '%' : '--', 'Daily average');
+  html += ddCard('Sunrise', day.sunrise, 'Sunset ' + day.sunset);
+  html += ddCard('Visibility', visAvg != null ? displayVis(visAvg) : '--', 'Daily average');
+  html += ddCard('Pressure', presAvg != null ? ddPressure(presAvg) : '--', 'Daily average');
+  return html;
+}
+
+// ---------- Main render ----------
+function renderDayDetail() {
+  if (!dayDetailData || !dayDetailData.forecast || !dayDetailData.forecast.length) return;
+  var f = dayDetailData.forecast;
+  if (ddIndex >= f.length) ddIndex = f.length - 1;
+  if (ddIndex < 0) ddIndex = 0;
+  var day = f[ddIndex];
+  if (!day || !day.hours) return;
+  var prev = ddIndex > 0 ? f[ddIndex - 1] : null;
+  var cfg = ddMetricConfig(ddMetric);
+  cfg.id = ddMetric;
+
+  document.getElementById('dd-city').textContent = (currentCity || '').split(',')[0].trim();
+  document.getElementById('dd-day').textContent = day.dayFull;
+  document.getElementById('dd-date').textContent = day.dateLabel;
+  document.getElementById('dd-prev').disabled = (ddIndex === 0);
+  document.getElementById('dd-next').disabled = (ddIndex >= f.length - 1);
+
+  document.getElementById('dd-icon').innerHTML = getIcon(day.condition, true);
+  document.getElementById('dd-cond').textContent = day.condition;
+  var hiEl = document.getElementById('dd-hi'), loEl = document.getElementById('dd-lo');
+  hiEl.textContent = toDisplayStr(day.max);
+  hiEl.style.color = catColorFg(day.max);
+  loEl.textContent = toDisplayStr(day.min);
+  loEl.style.color = catColorFg(day.min);
+
+  // metric chips
+  document.getElementById('dd-metrics').innerHTML = DD_METRICS.map(function(m) {
+    return '<button class="dd-chip' + (m.id === ddMetric ? ' active' : '') + '" data-metric="' + m.id + '">' + m.label + '</button>';
+  }).join('');
+
+  document.getElementById('dd-chart-title').textContent = cfg.title;
+  document.getElementById('dd-readout').innerHTML = '<span class="dd-readout-hint">Drag across the chart to scrub through the day</span>';
+  document.getElementById('dd-chart-wrap').innerHTML = ddChartSVG(day, cfg);
+
+  document.getElementById('dd-summary').textContent = ddSummary(day, prev);
+  document.getElementById('dd-cards').innerHTML = ddDetailCards(day);
+
+  // scroll the active chip into view
+  var active = document.querySelector('.dd-chip.active');
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+
+function ddRenderChartOnly() {
+  if (!dayDetailData || !dayDetailData.forecast) return;
+  var day = dayDetailData.forecast[ddIndex];
+  if (!day || !day.hours) return;
+  var cfg = ddMetricConfig(ddMetric); cfg.id = ddMetric;
+  var wrap = document.getElementById('dd-chart-wrap');
+  if (wrap) wrap.innerHTML = ddChartSVG(day, cfg);
+}
+
+// ---------- Scrubbing ----------
+function ddScrubAt(clientX) {
+  var day = dayDetailData.forecast[ddIndex];
+  var hrs = day.hours || [];
+  if (!hrs.length) return;
+  var svg = document.querySelector('#dd-chart-wrap svg');
+  if (!svg) return;
+  var rect = svg.getBoundingClientRect();
+  if (!rect.width || !ddGeom) return;
+  var cfg = ddMetricConfig(ddMetric); cfg.id = ddMetric;
+  var x0 = ddGeom.x0, x1 = ddGeom.x1, W = ddGeom.W;
+  var uxPerPx = W / rect.width;
+  var ux = (clientX - rect.left) * uxPerPx;
+  var t = (ux - x0) / (x1 - x0);
+  t = Math.max(0, Math.min(1, t));
+  var i = cfg.type === 'bar'
+    ? Math.min(hrs.length - 1, Math.floor(t * hrs.length))
+    : Math.round(t * (hrs.length - 1));
+  if (i === ddScrubIdx) return;
+  ddScrubIdx = i;
+
+  var h = hrs[i];
+  var v = cfg.get(h);
+  var out = document.getElementById('dd-readout');
+  if (v == null || isNaN(v)) {
+    out.innerHTML = '<span class="dd-readout-hint">No data at ' + ddHourLabel(h.hour) + '</span>';
+  } else {
+    out.innerHTML = '<span class="dd-readout-time">' + ddHourLabel(h.hour) + '</span>' +
+                    '<span class="dd-readout-val">' + cfg.fmt(v, h) + '</span>';
+  }
+
+  // move the indicator
+  var g = svg.querySelector('#dd-scrub');
+  if (!g) return;
+  if (v == null || isNaN(v)) { g.style.display = 'none'; return; }
+  var n = hrs.length, span = x1 - x0;
+  var bw = span / n;
+  var px = cfg.type === 'bar' ? x0 + (i + 0.5) * bw : (n <= 1 ? x0 : x0 + (i / (n - 1)) * span);
+  // lo/hi were resolved when the chart was drawn — reuse them so the dot
+  // always lands exactly on the plotted point.
+  var lo = ddGeom.lo, hi = ddGeom.hi;
+  var yTop = ddGeom.yTop, yBot = ddGeom.yBot;
+  var py = yBot - ((v - lo) / (hi - lo)) * (yBot - yTop);
+
+  g.style.display = '';
+  var line = svg.querySelector('#dd-scrub-line');
+  line.setAttribute('x1', px); line.setAttribute('x2', px);
+  var dot = svg.querySelector('#dd-scrub-dot');
+  dot.setAttribute('cx', px); dot.setAttribute('cy', py);
+}
+
+function ddEndScrub() {
+  ddScrubIdx = null;
+  var svg = document.querySelector('#dd-chart-wrap svg');
+  if (svg) { var g = svg.querySelector('#dd-scrub'); if (g) g.style.display = 'none'; }
+  var out = document.getElementById('dd-readout');
+  if (out) out.innerHTML = '<span class="dd-readout-hint">Drag across the chart to scrub through the day</span>';
+}
+
+// ---------- Wiring ----------
+function ddInit() {
+  var sheet = document.getElementById('day-detail-sheet');
+  if (!sheet) return;
+
+  document.getElementById('dd-close').addEventListener('click', closeDayDetail);
+  document.getElementById('day-detail-backdrop').addEventListener('click', closeDayDetail);
+  document.getElementById('dd-prev').addEventListener('click', function() { ddStep(-1); });
+  document.getElementById('dd-next').addEventListener('click', function() { ddStep(1); });
+
+  document.getElementById('dd-metrics').addEventListener('click', function(e) {
+    var b = e.target.closest('.dd-chip');
+    if (!b) return;
+    ddMetric = b.dataset.metric;
+    ddScrubIdx = null;
+    renderDayDetail();
+  });
+
+  var wrap = document.getElementById('dd-chart-wrap');
+  var dragging = false;
+  wrap.addEventListener('pointerdown', function(e) {
+    dragging = true;
+    try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
+    ddScrubAt(e.clientX);
+    e.preventDefault();
+  });
+  wrap.addEventListener('pointermove', function(e) {
+    if (dragging) { ddScrubAt(e.clientX); e.preventDefault(); }
+  });
+  function stop() { if (dragging) { dragging = false; ddEndScrub(); } }
+  wrap.addEventListener('pointerup', stop);
+  wrap.addEventListener('pointercancel', stop);
+  wrap.addEventListener('pointerleave', stop);
+
+  // Swipe left/right between days
+  sheet.addEventListener('touchstart', function(e) {
+    if (e.target.closest('#dd-chart-wrap') || e.target.closest('#dd-metrics')) return;
+    ddTouchX = e.touches[0].clientX; ddTouchY = e.touches[0].clientY;
+  }, { passive: true });
+  sheet.addEventListener('touchend', function(e) {
+    if (ddTouchX == null) return;
+    var dx = e.changedTouches[0].clientX - ddTouchX;
+    var dy = e.changedTouches[0].clientY - ddTouchY;
+    ddTouchX = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6) ddStep(dx < 0 ? 1 : -1);
+  }, { passive: true });
+
+  var ddResizeTimer = null;
+  function ddOnResize() {
+    if (!sheet.classList.contains('open')) return;
+    clearTimeout(ddResizeTimer);
+    ddResizeTimer = setTimeout(ddRenderChartOnly, 140);
+  }
+  window.addEventListener('resize', ddOnResize);
+  window.addEventListener('orientationchange', ddOnResize);
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(ddOnResize).observe(document.getElementById('dd-chart-wrap')); } catch (err) {}
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (!sheet.classList.contains('open')) return;
+    if (e.key === 'Escape')     { closeDayDetail(); }
+    if (e.key === 'ArrowRight') { ddStep(1); }
+    if (e.key === 'ArrowLeft')  { ddStep(-1); }
+  });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ddInit);
+else ddInit();
