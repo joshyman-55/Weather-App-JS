@@ -186,6 +186,18 @@ function decodeCode(code) {
   if (code === 99) return 'Scattered Thunderstorms';
   return 'Cloudy';
 }
+// Open-Meteo's weather_code can say plain "Rain"/"Drizzle"/"Showers" for an
+// hour that's still at or below freezing — liquid rain can't actually fall
+// unfrozen at those temps, so treat it as the freezing variant instead of
+// trusting the raw code blindly.
+function adjustConditionForTemp(condition, tempF) {
+  if (tempF == null || tempF > 32) return condition;
+  const c = condition.toLowerCase();
+  if (c.includes('freezing') || c.includes('snow') || c.includes('sleet') || c.includes('thunder')) return condition;
+  if (c.includes('drizzle')) return 'Freezing Drizzle';
+  if (c.includes('rain') || c.includes('shower')) return 'Freezing Rain';
+  return condition;
+}
 function getIcon(condition, isDay) {
   const c = condition.toLowerCase();
 
@@ -208,17 +220,17 @@ function getIcon(condition, isDay) {
 
   if (c.includes('snow flurr') || c.includes('light snow'))
     return isDay
-      ? '<span class="wi-white">&#127783;</span>'
+      ? '<span class="wi-white">&#127784;</span>'
       : '<span class="wi-white">&#10052;</span>';
 
   if (c.includes('snow'))
     return '<span class="wi-white">&#10052;</span>';
 
-  if (c.includes('freezing'))
-    return '<span class="wi-white">&#127767;</span>';
+  if (c.includes('freezing') && !c.includes('fog'))
+    return '<span class="wi-white">&#127784;</span>';
 
   if (c === 'heavy showers' || c.includes('heavy rain'))
-    return '<span class="wi-white">&#127327;</span>';
+    return '<span class="wi-white">&#127783;</span>';
 
   if (c === 'scattered showers')
     return isDay
@@ -242,13 +254,13 @@ function getIcon(condition, isDay) {
   if (c.includes('wind') || c.includes('breezy'))
     return '<span class="wi-white">&#127788;</span>';
 
-  if (c.includes('mostly cloudy') || c.includes('overcast') || c.includes('cloudy'))
+  if (c.includes('mostly cloudy') || c.includes('overcast') || (c.includes('cloudy') && !c.includes('partly')))
     return '<span class="wi-white">&#9729;</span>';
 
   if (c.includes('partly cloudy') || c.includes('mostly clear'))
     return isDay
       ? '<span class="wi-white">&#9925;</span>'
-      : '<span class="wi-white">&#127748;</span>';
+      : '<span class="wi-white">&#127769;</span>';
 
   if (isDay)
     return '<span class="wi-sun">&#9728;</span>';
@@ -379,7 +391,7 @@ async function buildWeatherData(wx, aqi) {
     hourlyData.push({
       time: timeMil,
       temp: Math.round(hTemp),
-      condition: decodeCode(hourly.weather_code[i] != null ? hourly.weather_code[i] : 0),
+      condition: adjustConditionForTemp(decodeCode(hourly.weather_code[i] != null ? hourly.weather_code[i] : 0), hTemp),
       uvIndex: hourly.uv_index[i] || 0
     });
   }
@@ -403,7 +415,7 @@ async function buildWeatherData(wx, aqi) {
       temp:       pick(hourly.temperature_2m, i, null),
       feels:      pick(hourly.apparent_temperature, i, null),
       code:       pick(hourly.weather_code, i, 0),
-      condition:  decodeCode(pick(hourly.weather_code, i, 0)),
+      condition:  adjustConditionForTemp(decodeCode(pick(hourly.weather_code, i, 0)), pick(hourly.temperature_2m, i, null)),
       uvIndex:    pick(hourly.uv_index, i, 0),
       precipProb: pick(hourly.precipitation_probability, i, 0),
       precipAmt:  pick(hourly.precipitation, i, 0),
@@ -427,7 +439,7 @@ async function buildWeatherData(wx, aqi) {
       max: Math.round(pick(daily.temperature_2m_max, i, 0)),
       feelsMin: pick(daily.apparent_temperature_min, i, null),
       feelsMax: pick(daily.apparent_temperature_max, i, null),
-      condition: decodeCode(pick(daily.weather_code, i, 0)),
+      condition: adjustConditionForTemp(decodeCode(pick(daily.weather_code, i, 0)), pick(daily.temperature_2m_max, i, null)),
       precipChance: pick(daily.precipitation_probability_max, i, 0),
       precipSum: pick(daily.precipitation_sum, i, 0),
       uvMax: pick(daily.uv_index_max, i, 0),
@@ -446,7 +458,7 @@ async function buildWeatherData(wx, aqi) {
   return {
     currentTemp: Math.round(cur.temperature_2m    != null ? cur.temperature_2m    : 0),
     feelsLike:   Math.round(cur.apparent_temperature != null ? cur.apparent_temperature : 0),
-    condition: decodeCode(cur.weather_code != null ? cur.weather_code : 0),
+    condition: adjustConditionForTemp(decodeCode(cur.weather_code != null ? cur.weather_code : 0), cur.temperature_2m),
     isDay, sunriseInt, sunsetInt, currentMilitary,
     sunrise: sunriseArr ? fmt12(sunriseArr[0]) : '--',
     sunset:  sunsetArr  ? fmt12(sunsetArr[0])  : '--',
@@ -840,6 +852,46 @@ function removeCity(name) {
   delete cityCoords[name];
   storageSet(COORDS_KEY, JSON.stringify(cityCoords));
   saveCities();
+}
+
+// Re-adds any preadded/default city that isn't currently in the list —
+// no need to remember which one(s) got deleted. Doesn't touch cities the
+// user still has, and inserts each missing default back into its normal
+// slot (relative to the other default cities) rather than dumping it at
+// the very top of the list.
+function restoreDefaultCities() {
+  var missing = DEFAULT_CITIES.filter(function(dc) {
+    return !savedCities.some(function(c) { return c.toLowerCase() === dc.toLowerCase(); });
+  });
+  if (missing.length === 0) return;
+
+  missing.forEach(function(dc) {
+    var defIdx = DEFAULT_CITIES.indexOf(dc);
+    var insertAt = -1;
+
+    // Prefer slotting right after the nearest earlier default city that's
+    // still present in the list.
+    for (var i = defIdx - 1; i >= 0; i--) {
+      var idx = savedCities.findIndex(function(c) { return c.toLowerCase() === DEFAULT_CITIES[i].toLowerCase(); });
+      if (idx !== -1) { insertAt = idx + 1; break; }
+    }
+
+    // Otherwise, slot right before the nearest later default city present.
+    if (insertAt === -1) {
+      for (var j = defIdx + 1; j < DEFAULT_CITIES.length; j++) {
+        var idx2 = savedCities.findIndex(function(c) { return c.toLowerCase() === DEFAULT_CITIES[j].toLowerCase(); });
+        if (idx2 !== -1) { insertAt = idx2; break; }
+      }
+    }
+
+    // No default cities left at all — just append at the end.
+    if (insertAt === -1) insertAt = savedCities.length;
+
+    savedCities.splice(insertAt, 0, dc);
+  });
+
+  saveCities();
+  renderCitiesScreen();
 }
 
 // =========================================================
@@ -1432,20 +1484,29 @@ function renderHourly(data) {
   for (let i = 0; i < data.hourly.length; i++) {
     const h = data.hourly[i];
     const hi = Math.floor(h.time/100);
-    if (hi === sunriseHour) inner.appendChild(makeAstronomy('Sunrise', '<span class="wi-sun">&#9728;</span>', data.sunrise));
-    if (hi === sunsetHour)  inner.appendChild(makeAstronomy('Sunset',  '<span style="color:#FFB347">&#9790;</span>', data.sunset));
-    let label = fmtMil(h.time), hTemp = h.temp;
-    if (!foundNow && hi === nowHour) { label = 'Now'; hTemp = data.currentTemp; foundNow = true; }
-    const isHDay = h.time >= data.sunriseInt && h.time < data.sunsetInt;
+    let label = fmtMil(h.time), hTemp = h.temp, hCond = h.condition;
+    let isHDay = h.time >= data.sunriseInt && h.time < data.sunsetInt;
+    if (!foundNow && hi === nowHour) {
+      // Use the precise current-time day/night flag here, not the hour-bucket
+      // comparison — otherwise the "Now" tile can still show a night icon for
+      // the rest of the hour sunrise actually occurs in (e.g. sunrise at 5:26
+      // but the 5 AM bucket's h.time of 500 is still "before" it).
+      label = 'Now'; hTemp = data.currentTemp; hCond = data.condition; foundNow = true; isHDay = data.isDay;
+    }
     const item = document.createElement('div');
     item.className = 'hourly-item';
     item.innerHTML =
       '<div class="h-time' + (label==='Now' ? ' now' : '') + '">' + label + '</div>' +
-      '<div class="h-icon">' + getIcon(h.condition, isHDay) + '</div>' +
+      '<div class="h-icon">' + getIcon(hCond, isHDay) + '</div>' +
       '<div class="h-circle" style="background:' + tempColor(hTemp) + '">' +
         '<span style="color:' + tempTextColor(hTemp) + '">' + toDisplayStr(hTemp) + '</span>' +
       '</div>';
     inner.appendChild(item);
+    // Insert the sunrise/sunset marker AFTER the hour block it falls within,
+    // since the actual sunrise/sunset time (e.g. 5:26 AM) comes chronologically
+    // after that hour's top-of-hour tile (5:00 AM), not before it.
+    if (hi === sunriseHour) inner.appendChild(makeAstronomy('Sunrise', '<span class="wi-sun">&#127749;</span>', data.sunrise));
+    if (hi === sunsetHour)  inner.appendChild(makeAstronomy('Sunset',  '<span style="color:#FFB347">&#127751;</span>', data.sunset));
   }
 }
 function makeAstronomy(label, icon, time) {
@@ -1774,7 +1835,7 @@ function startLiveAnim(condition, isDay, currentMilitary, sunriseInt, sunsetInt)
   else if (c === 'heavy drizzle')
     { liveAnimType='drizzle'; setupRain(true);  setupClouds('gray', 9, currentMilitary, sunriseInt, sunsetInt); }
   else if (c.includes('freezing drizzle'))
-    { liveAnimType='drizzle'; setupRain(true);  setupClouds('gray', 8, currentMilitary, sunriseInt, sunsetInt); }
+    { liveAnimType='snow'; setupSnow(); setupClouds('gray', 8, currentMilitary, sunriseInt, sunsetInt); }
 
   else if (c === 'light rain')
     { liveAnimType='rain';    setupRain(false); setupClouds('gray', 8, currentMilitary, sunriseInt, sunsetInt); }
@@ -1783,7 +1844,7 @@ function startLiveAnim(condition, isDay, currentMilitary, sunriseInt, sunsetInt)
   else if (c === 'heavy rain')
     { liveAnimType='rain';    setupRain(false); setupClouds('gray', 9, currentMilitary, sunriseInt, sunsetInt); }
   else if (c.includes('freezing rain'))
-    { liveAnimType='rain';    setupRain(false); setupClouds('gray', 8, currentMilitary, sunriseInt, sunsetInt); }
+    { liveAnimType='snow'; setupSnow(); setupClouds('gray', 8, currentMilitary, sunriseInt, sunsetInt); }
 
   else if (c === 'scattered showers')
     { liveAnimType='rain';    setupRain(true);  setupClouds('gray', 6, currentMilitary, sunriseInt, sunsetInt); }
@@ -2230,6 +2291,10 @@ document.getElementById('menuEditCities').addEventListener('click', function() {
 document.getElementById('menuCurrentLocation').addEventListener('click', function() {
   dropdownMenu.classList.remove('open');
   addCurrentLocation();
+});
+document.getElementById('menuRestoreDefaults').addEventListener('click', function() {
+  dropdownMenu.classList.remove('open');
+  restoreDefaultCities();
 });
 // Menu button: opens menu normally, acts as Done when in edit mode
 document.getElementById('menuBtn').addEventListener('click', function(e) {
